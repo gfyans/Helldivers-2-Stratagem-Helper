@@ -109,6 +109,15 @@ internal sealed class SettingsForm : Form
         MaximumSize = new Size(Inner, 0), Margin = new Padding(0, top, 0, 0),
     };
 
+    /// <summary>Label sized like an HdBindBox (28 px + 2 px margins) so grid rows line up.</summary>
+    private static Label GridLabel(string text)
+    {
+        var l = Theme.MutedLabel(text, 70);
+        l.Height = 28;
+        l.Margin = new Padding(0, 2, 0, 2);
+        return l;
+    }
+
     private static FlowLayoutPanel Row(int top = 0) => new() { AutoSize = true, Margin = new Padding(0, top, 0, 0), WrapContents = false };
 
     private void BuildUi()
@@ -157,18 +166,28 @@ internal sealed class SettingsForm : Form
     {
         var page = Page();
         page.Controls.Add(new SectionHeader("General") { Width = Inner, Margin = new Padding(0, 0, 0, 4) });
-        foreach (var t in new HdToggle[] { _enabledBox, _autoBox, _focusBox, _overlayBox, _startupBox })
+        foreach (var t in new HdToggle[] { _enabledBox, _autoBox, _focusBox, _startupBox })
         {
             t.Margin = new Padding(2, 1, 0, 1);
             page.Controls.Add(t);
         }
-        page.Controls.Add(Hint("The overlay lists your scanned slots while the game is focused. Ctrl+V hides/shows it in game. Needs borderless or windowed mode."));
 
-        var soundRow = Row(8);
-        _soundBox.Margin = new Padding(2, 1, 12, 0);
-        soundRow.Controls.Add(_soundBox);
-        var testOk = new HdButton("▶ Success") { Margin = new Padding(0, 0, 6, 0) };
-        var testFail = new HdButton("▶ Fail") { Margin = Padding.Empty };
+        // Overlay & sound: each toggle with its explanation / controls indented beneath it (aligned with the toggle text).
+        const int Indent = 30;
+        page.Controls.Add(new SectionHeader("Overlay & sound") { Width = Inner, Margin = new Padding(0, 16, 0, 4) });
+        _overlayBox.Margin = new Padding(2, 1, 0, 0);
+        page.Controls.Add(_overlayBox);
+        var overlayHint = Hint("Lists your scanned slots in the corner while the game is focused. Ctrl+V hides it until your next scan. Needs borderless or windowed mode.", 0);
+        overlayHint.Margin = new Padding(Indent, 0, 0, 8);
+        overlayHint.MaximumSize = new Size(Inner - Indent, 0);
+        page.Controls.Add(overlayHint);
+
+        _soundBox.Margin = new Padding(2, 1, 0, 2);
+        page.Controls.Add(_soundBox);
+        var soundRow = Row();
+        soundRow.Margin = new Padding(Indent, 0, 0, 0);
+        var testOk = new HdButton("▶ Preview success") { Margin = new Padding(0, 0, 8, 0) };
+        var testFail = new HdButton("▶ Preview fail") { Margin = Padding.Empty };
         testOk.Click += (_, _) => Sounds.Success();
         testFail.Click += (_, _) => Sounds.Failure();
         soundRow.Controls.Add(testOk);
@@ -231,13 +250,13 @@ internal sealed class SettingsForm : Form
         for (int i = 0; i < 9; i++)
         {
             int col = i < 5 ? 0 : 2, row = i < 5 ? i : i - 5;
-            grid.Controls.Add(Theme.MutedLabel($"SLOT {i + 1}", 70), col, row);
+            grid.Controls.Add(GridLabel($"SLOT {i + 1}"), col, row);
             _slotBinds[i].Margin = new Padding(0, 2, col == 0 ? 40 : 0, 2);
             grid.Controls.Add(_slotBinds[i], col + 1, row);
             int idx = i;
             Wire(_slotBinds[i], id => { _settings.SlotBindings[idx] = id; });
         }
-        grid.Controls.Add(Theme.MutedLabel("SCAN", 70), 2, 4);
+        grid.Controls.Add(GridLabel("SCAN"), 2, 4);
         _scanBind.Margin = new Padding(0, 2, 0, 2);
         grid.Controls.Add(_scanBind, 3, 4);
         Wire(_scanBind, id => _settings.ScanBinding = id);
@@ -253,7 +272,9 @@ internal sealed class SettingsForm : Form
         page.Controls.Add(Hint("Time between the app pressing Ctrl and entering the code. Raise it if one-touch misses the first arrow."));
 
         page.Controls.Add(new SectionHeader("Always available") { Width = Inner, Margin = new Padding(0, 16, 0, 4) });
-        page.Controls.Add(Hint("Hold Ctrl + 1–9 to call in   ·   Hold Ctrl + C to scan your loadout   ·   Ctrl + V shows/hides the overlay", 0));
+        page.Controls.Add(Hint("Hold Ctrl + 1–9  \u2014  call in", 0));
+        page.Controls.Add(Hint("Hold Ctrl + C  \u2014  scan your loadout", 2));
+        page.Controls.Add(Hint("Hold Ctrl + V  \u2014  hide / show the overlay", 2));
 
         _menuDelayNum.ValueChanged += (_, _) => Change(() => _settings.MenuOpenDelayMs = (int)_menuDelayNum.Value);
         return page;

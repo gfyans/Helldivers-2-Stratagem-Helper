@@ -8,6 +8,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>StratagemHelper</AssemblyName>
     <RootNamespace>StratagemHelper</RootNamespace>
+    <Version>1.0.0</Version>
+    <Product>Stratagem Helper</Product>
+    <Description>Accessibility companion for Helldivers 2</Description>
   </PropertyGroup>
 
   <ItemGroup>
