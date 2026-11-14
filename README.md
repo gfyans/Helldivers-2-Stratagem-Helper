@@ -93,7 +93,7 @@ Or open `StratagemHelper.sln` in Visual Studio 2022 and press F5.
 
 ### First match: quick start
 
-1. Start Stratagem Helper (it can live in the system tray), then launch Helldivers 2. The status light turns **green**.
+1. Start Stratagem Helper. The first time, it asks whether to **start with Windows**. Say yes and it'll always be waiting in the system tray. Then launch Helldivers 2: the status light turns **green**.
 2. At the start of a mission, **hold Ctrl until the stratagem menu opens, then press C.** You'll hear a chime and your loadout appears in the app and the overlay.
 3. Call in stratagems:
    - **Ctrl + number**, or
@@ -213,6 +213,10 @@ dotnet run -c Release -- --overlay              # shows a sample loadout overlay
 Contributions are welcome, especially support for other resolutions, HUD scales and languages.
 
 ---
+
+## Licence
+
+[MIT](LICENSE): free to use, modify and share.
 
 ## Disclaimer
 

@@ -431,22 +431,26 @@ internal sealed class HdTabs : Control
 /// <summary>Outlined yellow button that fills on hover.</summary>
 internal sealed class HdButton : Button
 {
-    public HdButton(string text)
+    private readonly bool _primary;
+
+    /// <param name="primary">Solid yellow (the recommended choice) instead of outlined.</param>
+    public HdButton(string text, bool primary = false)
     {
+        _primary = primary;
         Text = text.ToUpperInvariant();
         Font = Theme.Heading;
         FlatStyle = FlatStyle.Flat;
         FlatAppearance.BorderColor = Theme.Yellow;
         FlatAppearance.BorderSize = 1;
-        FlatAppearance.MouseOverBackColor = Theme.Yellow;
+        FlatAppearance.MouseOverBackColor = primary ? Color.FromArgb(255, 240, 90) : Theme.Yellow;
         FlatAppearance.MouseDownBackColor = Theme.YellowDim;
-        BackColor = Theme.Bg;
-        ForeColor = Theme.Yellow;
+        BackColor = primary ? Theme.Yellow : Theme.Bg;
+        ForeColor = primary ? Theme.Bg : Theme.Yellow;
         AutoSize = true;
         Padding = new Padding(10, 3, 10, 3);
         Cursor = Cursors.Hand;
         UseVisualStyleBackColor = false;
     }
-    protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); ForeColor = Theme.Bg; }
-    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); ForeColor = Theme.Yellow; }
+    protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); if (!_primary) ForeColor = Theme.Bg; }
+    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); if (!_primary) ForeColor = Theme.Yellow; }
 }
