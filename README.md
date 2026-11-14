@@ -66,31 +66,13 @@ For example, the Orbital 380mm HE Barrage is Ctrl + 7 arrows. With one-touch tha
 - **Helldivers 2 in Borderless or Windowed mode.** Loadout scanning and the overlay read and draw on the screen, which exclusive fullscreen blocks. Hotkeys work in any mode.
 - **For voice:** a microphone and an **English** Windows speech recogniser (installed with English versions of Windows; otherwise add one under *Settings › Time & language › Speech*).
 
-### Option 1: Download (recommended)
+### Download
 
 1. Go to the [**Releases**](https://github.com/gfyans/Helldivers-2-Stratagem-Helper/releases) page and download **`StratagemHelper.exe`**.
 2. Put it in a folder of its own (for example `Documents\Stratagem Helper`). It saves its settings next to itself.
 3. Double-click it. Nothing else to install: .NET is built in.
 
-> **Windows SmartScreen** may say it "protected your PC", because the app isn't code-signed. Click **More info › Run anyway**. You can always build it yourself from source instead (below).
-
-### Option 2: Build from source
-
-Install the [.NET 10 SDK](https://dotnet.microsoft.com/download), then:
-
-```bash
-git clone https://github.com/gfyans/Helldivers-2-Stratagem-Helper.git
-cd Helldivers-2-Stratagem-Helper
-dotnet run --project StratagemHelper -c Release
-```
-
-To make your own single-file `StratagemHelper.exe` (no .NET needed on the target PC):
-
-```bash
-dotnet publish StratagemHelper -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o publish
-```
-
-Or open `StratagemHelper.sln` in Visual Studio 2022 and press F5.
+> **Windows SmartScreen** may say it "protected your PC", because the app isn't code-signed. Click **More info › Run anyway**.
 
 ### First match: quick start
 
@@ -181,39 +163,10 @@ Closing the window sends the app to the system tray. Right-click the tray icon a
 ## Fair play, safety and privacy
 
 - **Never touches the game.** It doesn't read game memory, inject anything, or modify files. It looks at screen pixels (like a screen recorder) and sends ordinary keyboard input (like a macro key or a Stream Deck). The overlay is a separate window on top, like Discord's or Steam's.
-- **Anti-cheat:** Helldivers 2 uses GameGuard. Input tools like this are widely used and I'm not aware of anyone being banned for them, but there's no guarantee. **Use at your own risk.**
+- **Anti-cheat:** Helldivers 2 uses Easy Anti-Cheat. Input tools like this are widely used and I'm not aware of anyone being banned for them, but there's no guarantee. **Use at your own risk.**
 - **Local and private.** No accounts or telemetry. The only network request is the update check to GitHub's public releases page, which contains no personal data and can be turned off under Settings › Updates. Voice recognition runs offline in Windows. Screen captures are processed in memory and never saved.
-- **Safe updates.** A download is only installed if it matches the SHA-256 checksum GitHub publishes for the release; otherwise it's deleted. Builds from source are never overwritten, they just tell you a new version is out.
+- **Safe updates.** A download is only installed if it matches the SHA-256 checksum GitHub publishes for the release; otherwise it's deleted.
 - **Your data** (`settings.json`, `stratagems.json`, `stats.json`) lives next to the exe. Delete the folder and it's gone.
-
----
-
-## For developers
-
-```
-StratagemHelper/      the app (C#, .NET 10, WinForms)
-  MenuReader.cs       screen capture, Windows OCR, arrow recognition
-  KeyboardHook.cs     global keyboard/mouse hooks and bindings
-  InputSender.cs      scan-code input (what the game sees)
-  Voice.cs            offline speech grammar ("call in" + loadout)
-  LoadoutOverlay.cs   click-through in-game panel
-tools/OcrTest/        test tool for the app's detection, voice and input code
-tools/capture-on-ctrl.ps1   saves a screenshot each time Ctrl is held (to collect menu samples)
-```
-
-The test tool runs the app's real code:
-
-```bash
-cd tools/OcrTest
-dotnet run -c Release -- ../../captures/*.png   # menu reading (names + arrows) on your captures
-dotnet run -c Release -- --voice                # voice phrases against the real recogniser
-dotnet run -c Release -- --keys                 # one-touch keystroke order
-dotnet run -c Release -- --overlay              # shows a sample loadout overlay
-```
-
-`captures/` isn't in the repo (game screenshots can show your in-game name). Run `tools/capture-on-ctrl.ps1`, then hold Ctrl in a match to collect your own.
-
-Contributions are welcome, especially support for other resolutions, HUD scales and languages.
 
 ---
 
