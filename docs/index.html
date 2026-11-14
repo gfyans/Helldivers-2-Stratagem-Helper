@@ -17,7 +17,8 @@
   }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 400 1.08rem/1.65 var(--body); }
+  html { background: #07080b; }
+  body { margin: 0; background: transparent; color: var(--text); font: 400 1.08rem/1.65 var(--body); }
   a { color: var(--yellow); }
   a:focus-visible, .btn:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
   .wrap { max-width: 980px; margin: 0 auto; padding: 0 20px; }
@@ -48,7 +49,18 @@
   .shot { border: 1px solid var(--border); background: var(--panel); padding: 8px; box-shadow: 10px 10px 0 var(--yellow-dim); }
   .shot img { display: block; width: 100%; height: auto; }
   section { padding: 72px 0; border-top: 1px solid var(--border); }
-  section:nth-of-type(even) { background: var(--panel); }
+  section:nth-of-type(even) { background: rgba(24, 26, 28, .88); }
+
+  /* Space background: fixed layers that drift at different speeds as you scroll (see script at the bottom). */
+  .space { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none;
+           background: radial-gradient(ellipse 120% 80% at 50% -10%, #131925 0%, #07080b 65%); }
+  .space .layer { position: absolute; left: 0; top: 0; width: 100%; will-change: transform; }
+  .space .planet { position: absolute; right: -24vw; top: 62vh; width: min(100vw, 1040px); aspect-ratio: 1; filter: brightness(.85); }
+  .space .moon { position: absolute; left: 5vw; top: 100vh; width: 130px; aspect-ratio: 1; }
+  .space .planet canvas, .space .moon canvas { display: block; width: 100%; height: 100%; opacity: 0; transition: opacity 1.2s; }
+  .space canvas.ready { opacity: 1; }
+  .space .orbit { position: absolute; left: -16%; right: -16%; top: 42%; height: 16%; border-radius: 50%;
+      border: 1px dashed rgba(255, 230, 0, .16); transform: rotate(-14deg); }
   h2 { font-size: clamp(2rem, 5vw, 2.8rem); margin: 0 0 24px; display: flex; align-items: center; gap: 14px; }
   h2::before { content: ""; width: 8px; height: .9em; background: var(--yellow); }
   h3 { color: var(--yellow); font-size: 1.35rem; margin: 0 0 6px; }
@@ -80,11 +92,21 @@
     .steps { grid-template-columns: 1fr; }
     nav ul { display: none; }
     .codes { white-space: normal; }
+    /* Text runs full width on phones, so dim the background behind it. */
+    .space::after { content: ""; position: absolute; inset: 0; background: rgba(7, 8, 11, .5); }
+    .space .planet { filter: brightness(.6); }
   }
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; } }
 </style>
 </head>
 <body>
+<div class="space" aria-hidden="true">
+  <canvas class="layer" data-speed="0.05" data-nebula></canvas>
+  <canvas class="layer" data-speed="0.08" data-stars="far"></canvas>
+  <canvas class="layer" data-speed="0.11" data-stars="near"></canvas>
+  <div class="layer" data-speed="0.18"><div class="moon"><canvas width="260" height="260"></canvas></div></div>
+  <div class="layer" data-speed="0.3"><div class="planet"><canvas width="720" height="720"></canvas><div class="orbit"></div></div></div>
+</div>
 <div class="hazard" aria-hidden="true"></div>
 <div class="topbar">
 <div class="wrap">
@@ -192,5 +214,241 @@
     <span><a href="https://github.com/gfyans/Helldivers-2-Stratagem-Helper/issues">Report a problem</a></span>
   </div>
 </footer>
+<script>
+  // Space background: stars, a nebula, a planet and a moon, all drawn here (no image files).
+  // Each layer moves up at its own fraction of the scroll distance to give a parallax effect.
+  (() => {
+    const layers = [...document.querySelectorAll(".space .layer")];
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)");
+
+    // Seeded random numbers, so everything looks the same on every visit.
+    const rng = seed => () => {
+      seed = (seed + 0x6D2B79F5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+
+    // 3D value noise layered into "fractal" noise, for terrain, clouds and gas.
+    function makeNoise(seed) {
+      const r = rng(seed), perm = new Uint16Array(512), val = new Float32Array(256);
+      const p = [...Array(256).keys()];
+      for (let i = 255; i > 0; i--) { const j = (r() * (i + 1)) | 0; [p[i], p[j]] = [p[j], p[i]]; }
+      for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+      for (let i = 0; i < 256; i++) val[i] = r();
+      const h = (a, b, c) => val[perm[perm[perm[a] + b] + c]];
+      const noise = (x, y, z) => {
+        const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+        const X = xi & 255, Y = yi & 255, Z = zi & 255;
+        let u = x - xi, v = y - yi, w = z - zi;
+        u = u * u * (3 - 2 * u); v = v * v * (3 - 2 * v); w = w * w * (3 - 2 * w);
+        const a = h(X, Y, Z) + (h(X + 1, Y, Z) - h(X, Y, Z)) * u;
+        const b = h(X, Y + 1, Z) + (h(X + 1, Y + 1, Z) - h(X, Y + 1, Z)) * u;
+        const c = h(X, Y, Z + 1) + (h(X + 1, Y, Z + 1) - h(X, Y, Z + 1)) * u;
+        const d = h(X, Y + 1, Z + 1) + (h(X + 1, Y + 1, Z + 1) - h(X, Y + 1, Z + 1)) * u;
+        const e = a + (b - a) * v, f = c + (d - c) * v;
+        return e + (f - e) * w;
+      };
+      return (x, y, z, octaves = 5) => {
+        let amp = 0.5, freq = 1, sum = 0, norm = 0;
+        for (let i = 0; i < octaves; i++) { sum += amp * noise(x * freq, y * freq, z * freq); norm += amp; amp *= 0.5; freq *= 2.03; }
+        return sum / norm;
+      };
+    }
+
+    const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+    const smooth = (a, b, v) => { const t = clamp((v - a) / (b - a)); return t * t * (3 - 2 * t); };
+    const ramp = (stops, t) => {
+      for (let i = 1; i < stops.length; i++) {
+        if (t <= stops[i][0]) {
+          const [t0, c0] = stops[i - 1], [t1, c1] = stops[i], k = (t - t0) / (t1 - t0);
+          return [c0[0] + (c1[0] - c0[0]) * k, c0[1] + (c1[1] - c0[1]) * k, c0[2] + (c1[2] - c0[2]) * k];
+        }
+      }
+      return stops[stops.length - 1][1];
+    };
+    const LIGHT = (() => { const v = [-0.78, -0.42, 0.42], m = Math.hypot(...v); return v.map(x => x / m); })();
+    const nextFrame = () => new Promise(res => setTimeout(res, 0));
+
+    // Renders a lit sphere into a canvas, a few rows at a time so the page never freezes.
+    // shade(n, q) returns [r, g, b] for a surface normal n and rotated sample point q.
+    async function renderSphere(canvas, { haloSize, halo, atmo, atmoStrength, tilt, shade }) {
+      const S = canvas.width, c = S / 2, R = c / (1 + haloSize);
+      const g = canvas.getContext("2d"), img = g.createImageData(S, S), d = img.data;
+      const ct = Math.cos(tilt), st = Math.sin(tilt);
+      const lightLen2D = Math.hypot(LIGHT[0], LIGHT[1]);
+      for (let y = 0; y < S; y++) {
+        for (let x = 0; x < S; x++) {
+          const nx = (x + 0.5 - c) / R, ny = (y + 0.5 - c) / R, r2 = nx * nx + ny * ny, i = (y * S + x) * 4;
+          const dist = Math.sqrt(r2);
+          // Atmosphere glow around the edge, brighter on the sunlit side.
+          if (dist >= 1) {
+            if (dist < 1 + haloSize) {
+              const t = 1 - (dist - 1) / haloSize;
+              const facing = (nx * LIGHT[0] + ny * LIGHT[1]) / dist / lightLen2D;
+              const a = Math.pow(t, 2.6) * smooth(-0.5, 1, facing) * halo;
+              d[i] = atmo[0]; d[i + 1] = atmo[1]; d[i + 2] = atmo[2]; d[i + 3] = a * 255;
+            }
+            continue;
+          }
+          const nz = Math.sqrt(1 - r2);
+          // Tilt the texture so features don't line up with the screen.
+          const q = [nx * ct - nz * st, ny, nx * st + nz * ct];
+          const lam = nx * LIGHT[0] + ny * LIGHT[1] + nz * LIGHT[2];
+          let [r, gg, b] = shade([nx, ny, nz], q, lam);
+          // Hazy atmosphere thickening towards the edge on the day side.
+          const rim = Math.pow(1 - nz, 2.2) * smooth(-0.25, 0.5, lam) * atmoStrength;
+          r += atmo[0] * rim; gg += atmo[1] * rim; b += atmo[2] * rim;
+          const edge = clamp((1 - dist) * R + 0.5);
+          d[i] = clamp(r, 0, 255); d[i + 1] = clamp(gg, 0, 255); d[i + 2] = clamp(b, 0, 255); d[i + 3] = 255 * edge;
+        }
+        if (y % 48 === 47) await nextFrame();
+      }
+      g.putImageData(img, 0, 0);
+      canvas.classList.add("ready");
+    }
+
+    function drawPlanet(canvas) {
+      const terrain = makeNoise(11), warp = makeNoise(23), clouds = makeNoise(37), fires = makeNoise(51);
+      const land = [
+        [0.00, [10, 22, 34]], [0.40, [22, 46, 60]], [0.44, [38, 66, 72]],   // deep and shallow sea
+        [0.46, [112, 74, 44]], [0.56, [152, 94, 52]], [0.66, [186, 132, 82]], // coast, rust, sand
+        [0.76, [126, 84, 56]], [0.86, [96, 72, 60]], [1.00, [226, 214, 196]], // highlands, peaks
+      ];
+      return renderSphere(canvas, {
+        haloSize: 0.09, halo: 0.75, atmo: [255, 176, 92], atmoStrength: 0.75, tilt: 0.5,
+        shade: ([nx, ny, nz], [x, y, z], lam) => {
+          const s = 1.7;
+          const w = warp(x * s + 3.1, y * s, z * s, 4) - 0.5;
+          let hgt = terrain(x * s + w * 1.6, y * s + w * 1.6, z * s + w * 1.6, 6);
+          hgt = clamp((hgt - 0.5) * 2.5 + 0.5);
+          let col = ramp(land, hgt);
+          // Long cloud bands, stretched around the planet.
+          const cw = warp(x * 2.2, y * 6, z * 2.2, 3) - 0.5;
+          const cl = smooth(0.5, 0.68, clouds(x * 2.4 + cw * 1.2, y * 5.5 + cw * 2, z * 2.4, 5)) * 0.68;
+          col = [col[0] + (236 - col[0]) * cl, col[1] + (232 - col[1]) * cl, col[2] + (226 - col[2]) * cl];
+          // Soft day/night line with a warm tint at dusk.
+          const day = smooth(-0.08, 0.5, lam), lit = 0.025 + 0.975 * Math.max(0, lam) * day;
+          const dusk = smooth(-0.1, 0.05, lam) * (1 - smooth(0.05, 0.3, lam)) * 0.35;
+          let r = col[0] * lit + 255 * dusk * 0.5, g = col[1] * lit + 120 * dusk * 0.5, b = col[2] * lit + 40 * dusk * 0.3;
+          // Fires on the night side, where the land is.
+          if (lam < 0.02 && hgt > 0.46) {
+            const f = fires(x * 9, y * 9, z * 9, 3);
+            const glow = smooth(0.66, 0.8, f) * smooth(0.02, -0.25, lam) * (1 - cl);
+            r += 255 * glow; g += 110 * glow; b += 20 * glow;
+          }
+          return [r, g, b];
+        },
+      });
+    }
+
+    function drawMoon(canvas) {
+      const surface = makeNoise(71), r = rng(83);
+      const craters = Array.from({ length: 46 }, () => {
+        const zz = r() * 2 - 1, a = r() * Math.PI * 2, s = Math.sqrt(1 - zz * zz);
+        return { v: [s * Math.cos(a), s * Math.sin(a), zz], size: 0.04 + Math.pow(r(), 3) * 0.28 };
+      });
+      return renderSphere(canvas, {
+        haloSize: 0.03, halo: 0.25, atmo: [255, 200, 140], atmoStrength: 0.08, tilt: 0.9,
+        shade: (n, [x, y, z], lam) => {
+          let tone = 70 + (surface(x * 2.5, y * 2.5, z * 2.5, 6) - 0.5) * 160;
+          // Darker plains.
+          tone *= 1 - smooth(0.52, 0.62, surface(x * 1.1 + 9, y * 1.1, z * 1.1, 3)) * 0.35;
+          for (const k of craters) {
+            const dot = x * k.v[0] + y * k.v[1] + z * k.v[2];
+            const ang = Math.acos(clamp(dot, -1, 1)) / k.size;
+            if (ang < 1.2) tone *= ang < 0.85 ? 0.78 : 1 + 0.35 * (1 - Math.abs(ang - 1) / 0.2);
+          }
+          const lit = 0.02 + 0.98 * Math.max(0, lam) * smooth(-0.05, 0.3, lam);
+          return [tone * lit * 1.02, tone * lit, tone * lit * 0.96];
+        },
+      });
+    }
+
+    function drawStars() {
+      const maxScroll = Math.max(0, document.documentElement.scrollHeight - innerHeight);
+      document.querySelectorAll(".space canvas[data-stars]").forEach(c => {
+        const near = c.dataset.stars === "near";
+        const w = innerWidth;
+        const h = Math.ceil(innerHeight + maxScroll * (reduce.matches ? 0 : +c.dataset.speed) + 40);
+        c.width = w; c.height = h; c.style.height = h + "px";
+        const g = c.getContext("2d");
+        const r = rng(near ? 7 : 3);
+        const count = Math.round((w * h) / (near ? 9000 : 2000));
+        for (let i = 0; i < count; i++) {
+          const x = r() * w, y = r() * h;
+          const size = near ? 0.6 + r() * 1.4 : 0.3 + r() * 0.8;
+          const alpha = near ? 0.5 + r() * 0.5 : 0.25 + r() * 0.5;
+          g.fillStyle = r() < 0.12 ? `rgba(255,220,140,${alpha})` : `rgba(220,230,255,${alpha})`;
+          g.beginPath(); g.arc(x, y, size, 0, 7); g.fill();
+          if (near && size > 1.7) { // a few bright stars get a glint
+            g.strokeStyle = `rgba(255,240,200,${alpha * 0.5})`; g.lineWidth = 0.6;
+            g.beginPath();
+            g.moveTo(x - size * 4, y); g.lineTo(x + size * 4, y);
+            g.moveTo(x, y - size * 4); g.lineTo(x, y + size * 4);
+            g.stroke();
+          }
+        }
+      });
+    }
+
+    // Wispy nebula, painted at quarter size and stretched up (the softness suits it).
+    const gas = makeNoise(5), gas2 = makeNoise(17), dust = makeNoise(29);
+    function drawNebula() {
+      const c = document.querySelector(".space canvas[data-nebula]");
+      const maxScroll = Math.max(0, document.documentElement.scrollHeight - innerHeight);
+      const vw = innerWidth, vh = innerHeight;
+      const h = Math.ceil(vh + maxScroll * (reduce.matches ? 0 : +c.dataset.speed) + 40);
+      const SCALE = 4, W = Math.ceil(vw / SCALE), H = Math.ceil(h / SCALE);
+      c.width = W; c.height = H; c.style.height = h + "px";
+      const g = c.getContext("2d"), img = g.createImageData(W, H), d = img.data;
+      // Where the clouds gather: a big one upper right, a smaller one lower left.
+      const blobs = [[0.78 * vw, 0.3 * vh, 0.5 * vw, 1], [0.1 * vw, 0.95 * vh, 0.35 * vw, 0.7]];
+      const unit = 520;
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const px = x * SCALE, py = y * SCALE, X = px / unit, Y = py / unit, i = (y * W + x) * 4;
+          let mask = 0;
+          for (const [bx, by, br, bs] of blobs) {
+            const dx = (px - bx) / br, dy = (py - by) / (br * 0.7);
+            mask = Math.max(mask, Math.exp(-(dx * dx + dy * dy) * 1.6) * bs);
+          }
+          if (mask < 0.01) continue;
+          const q1 = gas(X, Y, 0.3, 4), q2 = gas(X + 5.2, Y + 1.3, 0.7, 4);
+          const v = gas2(X + 3.2 * q1, Y + 3.2 * q2, 1.7, 6);
+          let density = smooth(0.38, 0.78, v) * mask;
+          density *= 1 - smooth(0.55, 0.75, dust(X * 2.6, Y * 2.6, 4.1, 4)) * 0.75; // dark dust lanes
+          const core = smooth(0.62, 0.85, v) * mask;
+          const mix = clamp((q1 - 0.35) * 3);
+          // Teal to magenta, with warm hazard-orange at the bright cores.
+          let r = 40 + (175 - 40) * mix, gg = 120 + (55 - 120) * mix, b = 165 + (150 - 165) * mix;
+          r += (255 - r) * core * 0.8; gg += (175 - gg) * core * 0.8; b += (95 - b) * core * 0.8;
+          d[i] = r; d[i + 1] = gg; d[i + 2] = b; d[i + 3] = clamp(density * 0.62 + core * 0.2) * 255;
+        }
+      }
+      g.putImageData(img, 0, 0);
+    }
+
+    let queued = false;
+    function update() {
+      queued = false;
+      const y = reduce.matches ? 0 : scrollY;
+      layers.forEach(l => { l.style.transform = `translate3d(0, ${-y * l.dataset.speed}px, 0)`; });
+    }
+    const redraw = () => { drawStars(); drawNebula(); update(); };
+
+    addEventListener("scroll", () => { if (!queued) { queued = true; requestAnimationFrame(update); } }, { passive: true });
+    let timer;
+    addEventListener("resize", () => { clearTimeout(timer); timer = setTimeout(redraw, 150); });
+    reduce.addEventListener("change", redraw);
+    addEventListener("load", redraw); // page height can change once fonts and images arrive
+    redraw();
+    // The planet and moon take a moment to paint, so they fade in once ready.
+    setTimeout(async () => {
+      await drawMoon(document.querySelector(".space .moon canvas"));
+      await drawPlanet(document.querySelector(".space .planet canvas"));
+    }, 50);
+  })();
+</script>
 </body>
 </html>
