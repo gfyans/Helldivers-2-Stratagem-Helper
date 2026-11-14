@@ -2,42 +2,49 @@
 
 namespace StratagemHelper;
 
-/// <summary>Tabbed settings window. Changes apply immediately; the main window persists them.</summary>
+/// <summary>
+/// Tabbed settings window. Changes apply straight away; the main window saves them.
+/// Keyboard: Tab moves between controls, Ctrl+Tab / Ctrl+Shift+Tab switch tabs, arrow keys pick options, Esc closes.
+/// </summary>
 internal sealed class SettingsForm : Form
 {
-    private const int W = 560, Pad = 18, Inner = W - Pad * 2;
+    private const int W = 560, Pad = 18, Inner = W - Pad * 2, Indent = 32;
 
     private readonly Settings _settings;
+    private HdTabs _tabs = null!;
 
     // General
-    private readonly HdToggle _enabledBox = new("Enabled");
-    private readonly HdToggle _overlayBox = new("Show loadout overlay in game (top-left)");
-    private readonly HdToggle _startupBox = new("Start with Windows (in the system tray)");
-    private readonly HdToggle _soundBox = new("Sound cues when a scan succeeds or fails");
-
-    // Updates
-    private readonly HdToggle _autoUpdateBox = new("Check for updates automatically");
-    private readonly Label _updateInfo = new() { AutoSize = true, Font = Theme.Small, ForeColor = Theme.Muted, MaximumSize = new Size(Inner, 0) };
+    private readonly HdToggle _enabledBox = new("Hotkeys on");
+    private readonly HdToggle _startupBox = new("Start with Windows");
+    private readonly HdToggle _overlayBox = new("Show my loadout in the corner of the game");
+    private readonly HdToggle _soundBox = new("Play a sound when a scan works or fails");
+    private readonly HdRadio[] _sizeRadios = { new("100%"), new("125%"), new("150%"), new("200%") };
+    private static readonly int[] Sizes = { 100, 125, 150, 200 };
+    private readonly HdButton _restartBtn = new("Restart now") { Visible = false };
     private readonly HdRadio _wasdRadio = new("WASD");
     private readonly HdRadio _arrowRadio = new("Arrow keys");
     private readonly NumericUpDown _holdNum = new() { Minimum = 10, Maximum = 200, Width = 64 };
     private readonly NumericUpDown _gapNum = new() { Minimum = 10, Maximum = 200, Width = 64 };
 
     // Controls
-    private readonly HdBindBox[] _slotBinds = Enumerable.Range(0, 9).Select(_ => new HdBindBox()).ToArray();
-    private readonly HdBindBox _scanBind = new();
+    private readonly HdBindBox[] _slotBinds = Enumerable.Range(0, 9).Select(i => new HdBindBox { Label = $"Slot {i + 1} key" }).ToArray();
+    private readonly HdBindBox _scanBind = new() { Label = "Scan key" };
     private readonly NumericUpDown _menuDelayNum = new() { Minimum = 20, Maximum = 500, Width = 64 };
 
     // Voice
     private readonly HdRadio _voiceOff = new("Off");
     private readonly HdRadio _voicePtt = new("Push-to-talk");
     private readonly HdRadio _voiceAlways = new("Always listening");
-    private readonly HdBindBox _pttBind = new();
+    private readonly HdBindBox _pttBind = new() { Label = "Push-to-talk key" };
     private readonly NumericUpDown _confNum = new() { Minimum = 30, Maximum = 95, Width = 64 };
     private readonly Label _voiceInfo = new() { AutoSize = true, Font = Theme.Small, ForeColor = Theme.Muted, MaximumSize = new Size(Inner, 0) };
 
     // Stratagems
-    private readonly Label _countLabel = new() { AutoSize = true, Font = Theme.Small, ForeColor = Theme.Muted };
+    private readonly Label _countLabel = new() { AutoSize = true, Font = Theme.Small, ForeColor = Theme.Muted, MaximumSize = new Size(Inner, 0) };
+
+    // Updates
+    private readonly HdToggle _autoUpdateBox = new("Update automatically");
+    private readonly Label _updateInfo = new() { AutoSize = true, Font = Theme.Small, ForeColor = Theme.Muted, MaximumSize = new Size(Inner, 0) };
 
     private HdBindBox? _capturingBox;
     private bool _loading = true;
@@ -46,6 +53,7 @@ internal sealed class SettingsForm : Form
     public event Action<bool>? HotkeysEnabledChanged;
     public event Action? ReloadListRequested;
     public event Action? CheckUpdatesRequested;
+    public event Action? RestartRequested;
     public event Action<string, Color?>? Status;
     /// <summary>Ask the main window to capture the next key / mouse button; the callback gets the binding id.</summary>
     public event Action<Action<string>>? CaptureRequested;
@@ -53,6 +61,7 @@ internal sealed class SettingsForm : Form
 
     public SettingsForm(Settings settings, bool enabled, int stratagemCount, Icon icon)
     {
+        Theme.PrepareForm(this);
         _settings = settings;
         Text = "Stratagem Helper — Settings";
         FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -66,8 +75,6 @@ internal sealed class SettingsForm : Form
         ForeColor = Theme.Text;
         Font = Theme.Body;
         Icon = icon;
-        KeyPreview = true;
-        KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape && _capturingBox == null) Close(); };
 
         BuildUi();
 
@@ -76,6 +83,8 @@ internal sealed class SettingsForm : Form
         _soundBox.Checked = settings.SoundCues;
         _autoUpdateBox.Checked = settings.AutoUpdate;
         _startupBox.Checked = Startup.IsEnabled();
+        int sizeIdx = Array.IndexOf(Sizes, settings.TextSize);
+        _sizeRadios[sizeIdx < 0 ? 0 : sizeIdx].Checked = true;
         _wasdRadio.Checked = !settings.UseArrowKeys;
         _arrowRadio.Checked = settings.UseArrowKeys;
         _holdNum.Value = Math.Clamp(settings.KeyHoldMs, 10, 200);
@@ -90,14 +99,32 @@ internal sealed class SettingsForm : Form
         _confNum.Value = Math.Clamp(settings.VoiceConfidence, 30, 95);
         SetStratagemCount(stratagemCount);
         _loading = false;
+
+        Theme.ApplyTextScale(this);
     }
 
     public void SetStratagemCount(int n) =>
-        _countLabel.Text = $"{n} STRATAGEMS KNOWN  ·  NEW ONES ARE LEARNED AUTOMATICALLY WHEN YOU SCAN";
+        _countLabel.Text = $"I know {n} stratagems. New ones get picked up when you scan.";
 
-    public void SetVoiceInfo(string text) => _voiceInfo.Text = text.ToUpperInvariant();
+    public void SetVoiceInfo(string text) => _voiceInfo.Text = text;
 
-    public void SetUpdateInfo(string text) => _updateInfo.Text = text.ToUpperInvariant();
+    public void SetUpdateInfo(string text) => _updateInfo.Text = text;
+
+    /// <summary>Esc closes; Ctrl+Tab / Ctrl+Shift+Tab switch tabs (handled here because Tab never reaches KeyDown).</summary>
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (_capturingBox == null) // otherwise the next key belongs to the key being set
+        {
+            if (keyData == Keys.Escape) { Close(); return true; }
+            if (keyData is (Keys.Control | Keys.Tab) or (Keys.Control | Keys.Shift | Keys.Tab))
+            {
+                _tabs.Selected += (keyData & Keys.Shift) != 0 ? -1 : 1;
+                _tabs.Focus();
+                return true;
+            }
+        }
+        return base.ProcessCmdKey(ref msg, keyData);
+    }
 
     // ---------------- Layout ----------------
 
@@ -107,10 +134,11 @@ internal sealed class SettingsForm : Form
         Padding = new Padding(Pad, 14, Pad, 18), Margin = Padding.Empty, BackColor = Theme.Bg,
     };
 
-    private static Label Hint(string text, int top = 6) => new()
+    /// <summary>A short, plain explanation in sentence case.</summary>
+    private static Label Hint(string text, int top = 4, int indent = 0) => new()
     {
-        Text = text.ToUpperInvariant(), Font = Theme.Small, ForeColor = Theme.Muted, AutoSize = true,
-        MaximumSize = new Size(Inner, 0), Margin = new Padding(0, top, 0, 0),
+        Text = text, Font = Theme.Small, ForeColor = Theme.Muted, AutoSize = true,
+        MaximumSize = new Size(Inner - indent, 0), Margin = new Padding(indent, top, 0, 0),
     };
 
     /// <summary>Label sized like an HdBindBox (28 px + 2 px margins) so grid rows line up.</summary>
@@ -136,13 +164,13 @@ internal sealed class SettingsForm : Form
         header.Controls.Add(new Label
         {
             Text = "SETTINGS", Font = Theme.Title, ForeColor = Theme.Yellow,
-            AutoSize = true, Location = new Point(Pad - 3, 8),
+            AutoSize = true, Location = new Point(Pad - 3, 8), AccessibleName = "Settings",
         });
         root.Controls.Add(header);
         root.Controls.Add(new HazardStripe { Width = W, Margin = Padding.Empty });
 
-        var tabs = new HdTabs("General", "Controls", "Voice", "Stratagems", "Updates") { Width = W, Margin = Padding.Empty };
-        root.Controls.Add(tabs);
+        _tabs = new HdTabs("General", "Controls", "Voice", "Stratagems", "Updates") { Width = W, Margin = Padding.Empty };
+        root.Controls.Add(_tabs);
 
         var pages = new[] { BuildGeneral(), BuildControls(), BuildVoice(), BuildStratagems(), BuildUpdates() };
         // Fixed-size host sized to the tallest page so the window doesn't jump between tabs.
@@ -156,8 +184,10 @@ internal sealed class SettingsForm : Form
             host.Controls.Add(p);
         }
         host.Size = new Size(W, maxH);
+        // Re-measure once scaling (text size / display scaling) has been applied, so there's no empty space at the bottom.
+        Load += (_, _) => host.Height = pages.Max(p => p.GetPreferredSize(new Size(host.Width, 0)).Height);
         pages[0].Visible = true;
-        tabs.SelectedChanged += i =>
+        _tabs.SelectedChanged += i =>
         {
             CancelCapture();
             for (int k = 0; k < pages.Length; k++) pages[k].Visible = k == i;
@@ -170,58 +200,78 @@ internal sealed class SettingsForm : Form
     {
         var page = Page();
         page.Controls.Add(new SectionHeader("General") { Width = Inner, Margin = new Padding(0, 0, 0, 4) });
-        foreach (var t in new HdToggle[] { _enabledBox, _startupBox })
-        {
-            t.Margin = new Padding(2, 1, 0, 1);
-            page.Controls.Add(t);
-        }
+        _enabledBox.Margin = new Padding(2, 1, 0, 0);
+        page.Controls.Add(_enabledBox);
+        page.Controls.Add(Hint("Turn this off to pause everything without closing the app.", 0, Indent));
+        _startupBox.Margin = new Padding(2, 6, 0, 0);
+        page.Controls.Add(_startupBox);
+        page.Controls.Add(Hint("It waits in the system tray until you play.", 0, Indent));
 
-        // Overlay & sound: each toggle with its explanation / controls indented beneath it (aligned with the toggle text).
-        const int Indent = 30;
         page.Controls.Add(new SectionHeader("Overlay & sound") { Width = Inner, Margin = new Padding(0, 16, 0, 4) });
         _overlayBox.Margin = new Padding(2, 1, 0, 0);
         page.Controls.Add(_overlayBox);
-        var overlayHint = Hint("Lists your scanned slots in the corner while the game is focused. Ctrl+V hides it until your next scan. Needs borderless or windowed mode.", 0);
-        overlayHint.Margin = new Padding(Indent, 0, 0, 8);
-        overlayHint.MaximumSize = new Size(Inner - Indent, 0);
-        page.Controls.Add(overlayHint);
+        page.Controls.Add(Hint("Press Ctrl+V in game to hide it. Needs borderless or windowed mode.", 0, Indent));
 
-        _soundBox.Margin = new Padding(2, 1, 0, 2);
+        _soundBox.Margin = new Padding(2, 6, 0, 2);
         page.Controls.Add(_soundBox);
         var soundRow = Row();
         soundRow.Margin = new Padding(Indent, 0, 0, 0);
-        var testOk = new HdButton("▶ Preview success") { Margin = new Padding(0, 0, 8, 0) };
-        var testFail = new HdButton("▶ Preview fail") { Margin = Padding.Empty };
+        var testOk = new HdButton("▶ Hear success") { Margin = new Padding(0, 0, 8, 0), AccessibleName = "Play the success sound" };
+        var testFail = new HdButton("▶ Hear fail") { Margin = Padding.Empty, AccessibleName = "Play the fail sound" };
         testOk.Click += (_, _) => Sounds.Success();
         testFail.Click += (_, _) => Sounds.Failure();
         soundRow.Controls.Add(testOk);
         soundRow.Controls.Add(testFail);
         page.Controls.Add(soundRow);
-        _soundBox.CheckedChanged += (_, _) => Change(() => _settings.SoundCues = _soundBox.Checked);
+
+        page.Controls.Add(new SectionHeader("Text size") { Width = Inner, Margin = new Padding(0, 16, 0, 4) });
+        var sizeRow = Row();
+        foreach (var (r, i) in _sizeRadios.Select((r, i) => (r, i)))
+        {
+            r.Margin = new Padding(i == 0 ? 2 : 0, 0, 14, 0);
+            r.AccessibleName = $"Text size {Sizes[i]} percent";
+            sizeRow.Controls.Add(r);
+            int size = Sizes[i];
+            r.CheckedChanged += (_, _) =>
+            {
+                if (_loading || !r.Checked) return;
+                _settings.TextSize = size;
+                SettingsChanged?.Invoke();
+                _restartBtn.Visible = size != (int)Math.Round(Theme.TextScale * 100);
+            };
+        }
+        _restartBtn.Margin = new Padding(6, 0, 0, 0);
+        _restartBtn.Click += (_, _) => RestartRequested?.Invoke();
+        sizeRow.Controls.Add(_restartBtn);
+        page.Controls.Add(sizeRow);
+        page.Controls.Add(Hint("Changes after a restart. Windows display scaling works too.", 2));
 
         page.Controls.Add(new SectionHeader("Input") { Width = Inner, Margin = new Padding(0, 16, 0, 4) });
         var dirRow = Row();
         dirRow.Controls.Add(Theme.MutedLabel("DIRECTIONS", 110));
         _wasdRadio.Margin = new Padding(0, 0, 18, 0);
         _arrowRadio.Margin = new Padding(0);
+        _wasdRadio.AccessibleName = "Send directions as WASD";
+        _arrowRadio.AccessibleName = "Send directions as arrow keys";
         dirRow.Controls.Add(_wasdRadio);
         dirRow.Controls.Add(_arrowRadio);
         page.Controls.Add(dirRow);
 
         var timingRow = Row(4);
         timingRow.Controls.Add(Theme.MutedLabel("KEY HOLD", 110));
-        Theme.StyleNumber(_holdNum);
+        Theme.StyleNumber(_holdNum, "Key hold, in milliseconds");
         timingRow.Controls.Add(_holdNum);
         timingRow.Controls.Add(Theme.MutedLabel("MS", 40));
         timingRow.Controls.Add(Theme.MutedLabel("KEY GAP", 80));
-        Theme.StyleNumber(_gapNum);
+        Theme.StyleNumber(_gapNum, "Gap between keys, in milliseconds");
         timingRow.Controls.Add(_gapNum);
         timingRow.Controls.Add(Theme.MutedLabel("MS", 40));
         page.Controls.Add(timingRow);
-        page.Controls.Add(Hint("Raise these if the game drops inputs or picks the wrong stratagem."));
+        page.Controls.Add(Hint("If the game misses inputs or picks the wrong stratagem, turn these up a little."));
 
         _enabledBox.CheckedChanged += (_, _) => { if (!_loading) HotkeysEnabledChanged?.Invoke(_enabledBox.Checked); };
         _overlayBox.CheckedChanged += (_, _) => Change(() => _settings.ShowOverlay = _overlayBox.Checked);
+        _soundBox.CheckedChanged += (_, _) => Change(() => _settings.SoundCues = _soundBox.Checked);
         _wasdRadio.CheckedChanged += (_, _) => Change(() => _settings.UseArrowKeys = _arrowRadio.Checked);
         _arrowRadio.CheckedChanged += (_, _) => Change(() => _settings.UseArrowKeys = _arrowRadio.Checked);
         _holdNum.ValueChanged += (_, _) => Change(() => _settings.KeyHoldMs = (int)_holdNum.Value);
@@ -236,7 +286,7 @@ internal sealed class SettingsForm : Form
             }
             catch (Exception ex)
             {
-                Status?.Invoke("Couldn't change startup setting: " + ex.Message, Theme.Danger);
+                Status?.Invoke("Couldn't change that: " + ex.Message, Theme.Danger);
             }
         };
         return page;
@@ -246,37 +296,41 @@ internal sealed class SettingsForm : Form
     {
         var page = Page();
         page.Controls.Add(new SectionHeader("One-touch call-ins") { Width = Inner, Margin = new Padding(0, 0, 0, 4) });
-        page.Controls.Add(Hint("One press enters the whole code — no need to hold Ctrl. Use the numpad, mouse side buttons, or a USB foot pedal.", 0));
+        page.Controls.Add(Hint("One press puts in the whole code, no Ctrl needed. Use the numpad, a mouse side button or a foot pedal.", 0));
 
         var grid = new TableLayoutPanel { AutoSize = true, ColumnCount = 4, Margin = new Padding(0, 10, 0, 0) };
+        // Tab order runs down the first column (slots 1-5), then the second (6-9, scan).
+        int tab = 0;
         for (int i = 0; i < 9; i++)
         {
             int col = i < 5 ? 0 : 2, row = i < 5 ? i : i - 5;
             grid.Controls.Add(GridLabel($"SLOT {i + 1}"), col, row);
             _slotBinds[i].Margin = new Padding(0, 2, col == 0 ? 40 : 0, 2);
+            _slotBinds[i].TabIndex = tab++;
             grid.Controls.Add(_slotBinds[i], col + 1, row);
             int idx = i;
             Wire(_slotBinds[i], id => { _settings.SlotBindings[idx] = id; });
         }
         grid.Controls.Add(GridLabel("SCAN"), 2, 4);
         _scanBind.Margin = new Padding(0, 2, 0, 2);
+        _scanBind.TabIndex = tab;
         grid.Controls.Add(_scanBind, 3, 4);
         Wire(_scanBind, id => _settings.ScanBinding = id);
         page.Controls.Add(grid);
-        page.Controls.Add(Hint("Click a box, then press a key or mouse button. Esc cancels, Backspace clears. Numpad needs Num Lock on."));
+        page.Controls.Add(Hint("Click a box (or press Enter on it), then press the key you want. Esc cancels, Backspace clears. Numpad keys need Num Lock on."));
 
         var delayRow = Row(12);
-        delayRow.Controls.Add(Theme.MutedLabel("MENU OPEN DELAY", 140));
-        Theme.StyleNumber(_menuDelayNum);
+        delayRow.Controls.Add(Theme.MutedLabel("MENU DELAY", 110));
+        Theme.StyleNumber(_menuDelayNum, "Menu delay, in milliseconds");
         delayRow.Controls.Add(_menuDelayNum);
         delayRow.Controls.Add(Theme.MutedLabel("MS", 40));
         page.Controls.Add(delayRow);
-        page.Controls.Add(Hint("Time between the app pressing Ctrl and entering the code. Raise it if one-touch misses the first arrow."));
+        page.Controls.Add(Hint("If one-touch misses the first arrow, turn this up."));
 
         page.Controls.Add(new SectionHeader("Always available") { Width = Inner, Margin = new Padding(0, 16, 0, 4) });
-        page.Controls.Add(Hint("Hold Ctrl + 1–9  \u2014  call in", 0));
-        page.Controls.Add(Hint("Hold Ctrl + C  \u2014  scan your loadout", 2));
-        page.Controls.Add(Hint("Hold Ctrl + V  \u2014  hide / show the overlay", 2));
+        page.Controls.Add(Hint("Hold Ctrl + 1–9 to call in", 0));
+        page.Controls.Add(Hint("Hold Ctrl + C to scan your loadout", 2));
+        page.Controls.Add(Hint("Ctrl + V hides or shows the overlay", 2));
 
         _menuDelayNum.ValueChanged += (_, _) => Change(() => _settings.MenuOpenDelayMs = (int)_menuDelayNum.Value);
         return page;
@@ -286,33 +340,36 @@ internal sealed class SettingsForm : Form
     {
         var page = Page();
         page.Controls.Add(new SectionHeader("Voice call-ins") { Width = Inner, Margin = new Padding(0, 0, 0, 4) });
-        page.Controls.Add(Hint("Say “call in” followed by a stratagem from your loadout (“call in orbital laser”, “call in resupply”) or a slot (“call in slot three”). Without “call in”, nothing happens. Recognition runs offline in Windows.", 0));
+        page.Controls.Add(Hint("Say “call in” and then a stratagem, like “call in orbital laser”, or a slot, like “call in slot three”.", 0));
 
         var modeRow = Row(10);
         modeRow.Controls.Add(Theme.MutedLabel("MODE", 110));
         _voiceOff.Margin = new Padding(0, 0, 14, 0);
         _voicePtt.Margin = new Padding(0, 0, 14, 0);
         _voiceAlways.Margin = new Padding(0);
+        _voiceOff.AccessibleName = "Voice off";
+        _voicePtt.AccessibleName = "Voice on push-to-talk";
+        _voiceAlways.AccessibleName = "Voice always listening";
         modeRow.Controls.Add(_voiceOff);
         modeRow.Controls.Add(_voicePtt);
         modeRow.Controls.Add(_voiceAlways);
         page.Controls.Add(modeRow);
 
         var pttRow = Row(6);
-        pttRow.Controls.Add(Theme.MutedLabel("PUSH-TO-TALK", 110));
+        pttRow.Controls.Add(Theme.MutedLabel("TALK KEY", 110));
         _pttBind.Margin = new Padding(0);
         pttRow.Controls.Add(_pttBind);
         page.Controls.Add(pttRow);
         Wire(_pttBind, id => _settings.PttBinding = id);
-        page.Controls.Add(Hint("The push-to-talk key still reaches the game, so it can double as your in-game voice chat key."));
+        page.Controls.Add(Hint("Your talk key still works in the game, so you can use your voice chat key."));
 
         var confRow = Row(10);
-        confRow.Controls.Add(Theme.MutedLabel("MIN. CONFIDENCE", 110));
-        Theme.StyleNumber(_confNum);
+        confRow.Controls.Add(Theme.MutedLabel("STRICTNESS", 110));
+        Theme.StyleNumber(_confNum, "Strictness, in percent");
         confRow.Controls.Add(_confNum);
         confRow.Controls.Add(Theme.MutedLabel("%", 40));
         page.Controls.Add(confRow);
-        page.Controls.Add(Hint("Raise it if voice triggers by mistake; lower it if it ignores you."));
+        page.Controls.Add(Hint("Turn it up if voice goes off by accident, or down if it keeps missing you."));
 
         page.Controls.Add(new SectionHeader("Status") { Width = Inner, Margin = new Padding(0, 16, 0, 4) });
         _voiceInfo.Margin = new Padding(0);
@@ -323,41 +380,6 @@ internal sealed class SettingsForm : Form
         _voicePtt.CheckedChanged += (_, _) => { if (_voicePtt.Checked) Mode(1); };
         _voiceAlways.CheckedChanged += (_, _) => { if (_voiceAlways.Checked) Mode(2); };
         _confNum.ValueChanged += (_, _) => Change(() => _settings.VoiceConfidence = (int)_confNum.Value);
-        return page;
-    }
-
-    private Control BuildUpdates()
-    {
-        var page = Page();
-        page.Controls.Add(new SectionHeader("Version") { Width = Inner, Margin = new Padding(0, 0, 0, 6) });
-        page.Controls.Add(new Label
-        {
-            Text = $"STRATAGEM HELPER v{Updater.Current}", Font = Theme.Heading, ForeColor = Theme.Text,
-            AutoSize = true, Margin = new Padding(0, 0, 0, 4),
-        });
-        _updateInfo.Margin = new Padding(0, 0, 0, 10);
-        page.Controls.Add(_updateInfo);
-
-        var btnRow = Row();
-        var checkBtn = new HdButton("Check now") { Margin = new Padding(0, 0, 10, 0) };
-        checkBtn.Click += (_, _) => CheckUpdatesRequested?.Invoke();
-        var releasesBtn = new HdButton("View releases") { Margin = Padding.Empty };
-        releasesBtn.Click += (_, _) => Updater.OpenReleasesPage();
-        btnRow.Controls.Add(checkBtn);
-        btnRow.Controls.Add(releasesBtn);
-        page.Controls.Add(btnRow);
-
-        page.Controls.Add(new SectionHeader("Automatic updates") { Width = Inner, Margin = new Padding(0, 18, 0, 4) });
-        _autoUpdateBox.Margin = new Padding(2, 1, 0, 0);
-        page.Controls.Add(_autoUpdateBox);
-        var hint = Hint("Checks GitHub when the app starts and every 12 hours. New versions download in the background, " +
-                        "are checked against GitHub's SHA-256 checksum, and install by themselves while Helldivers 2 isn't " +
-                        "running, so you're never interrupted mid-mission.", 0);
-        hint.Margin = new Padding(30, 0, 0, 0);
-        hint.MaximumSize = new Size(Inner - 30, 0);
-        page.Controls.Add(hint);
-
-        _autoUpdateBox.CheckedChanged += (_, _) => Change(() => _settings.AutoUpdate = _autoUpdateBox.Checked);
         return page;
     }
 
@@ -373,14 +395,44 @@ internal sealed class SettingsForm : Form
         editBtn.Click += (_, _) =>
         {
             Process.Start(new ProcessStartInfo(Storage.StratagemsPath) { UseShellExecute = true });
-            Status?.Invoke("Opened stratagems.json — save it, then press Reload list", null);
+            Status?.Invoke("Save your changes, then press Reload list", null);
         };
         var reloadBtn = new HdButton("Reload list") { Margin = new Padding(0) };
         reloadBtn.Click += (_, _) => ReloadListRequested?.Invoke();
         btnRow.Controls.Add(editBtn);
         btnRow.Controls.Add(reloadBtn);
         page.Controls.Add(btnRow);
-        page.Controls.Add(Hint("Codes use U, D, L, R for up, down, left, right.", 8));
+        page.Controls.Add(Hint("In the list, codes use U, D, L and R for up, down, left and right.", 8));
+        return page;
+    }
+
+    private Control BuildUpdates()
+    {
+        var page = Page();
+        page.Controls.Add(new SectionHeader("Version") { Width = Inner, Margin = new Padding(0, 0, 0, 6) });
+        page.Controls.Add(new Label
+        {
+            Text = $"Stratagem Helper {Updater.Current}", Font = Theme.Heading, ForeColor = Theme.Text,
+            AutoSize = true, Margin = new Padding(0, 0, 0, 4),
+        });
+        _updateInfo.Margin = new Padding(0, 0, 0, 10);
+        page.Controls.Add(_updateInfo);
+
+        var btnRow = Row();
+        var checkBtn = new HdButton("Check now") { Margin = new Padding(0, 0, 10, 0), AccessibleName = "Check for updates now" };
+        checkBtn.Click += (_, _) => CheckUpdatesRequested?.Invoke();
+        var releasesBtn = new HdButton("What's new") { Margin = Padding.Empty, AccessibleName = "Open the releases page on GitHub" };
+        releasesBtn.Click += (_, _) => Updater.OpenReleasesPage();
+        btnRow.Controls.Add(checkBtn);
+        btnRow.Controls.Add(releasesBtn);
+        page.Controls.Add(btnRow);
+
+        page.Controls.Add(new SectionHeader("Automatic updates") { Width = Inner, Margin = new Padding(0, 18, 0, 4) });
+        _autoUpdateBox.Margin = new Padding(2, 1, 0, 0);
+        page.Controls.Add(_autoUpdateBox);
+        page.Controls.Add(Hint("Updates install themselves when you're not playing.", 0, Indent));
+
+        _autoUpdateBox.CheckedChanged += (_, _) => Change(() => _settings.AutoUpdate = _autoUpdateBox.Checked);
         return page;
     }
 
@@ -394,6 +446,7 @@ internal sealed class SettingsForm : Form
             CancelCapture();
             _capturingBox = box;
             box.Capturing = true;
+            box.Focus();
             CaptureRequested?.Invoke(id => BeginInvoke(() =>
             {
                 if (_capturingBox != box) return;
@@ -403,7 +456,7 @@ internal sealed class SettingsForm : Form
                 string? value = id is Bindings.Backspace or Bindings.Delete ? null : id;
                 if (value != null && !Bindings.IsBindable(value))
                 {
-                    Status?.Invoke("That key can't be bound", Theme.Danger);
+                    Status?.Invoke("That key can't be used", Theme.Danger);
                     return;
                 }
                 box.Binding = value;

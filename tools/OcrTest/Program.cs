@@ -18,6 +18,18 @@ if (args.Length == 2 && args[0] == "--sounds")
     }
     return 0;
 }
+if (args.Length == 4 && args[0] == "--form")
+{
+    // Shows a window with a given text scale and High Contrast on/off for screenshots: --form first|settings <scale> <0|1>
+    Theme.Init(float.Parse(args[2], System.Globalization.CultureInfo.InvariantCulture), args[3] == "1");
+    Form f = args[1] == "first" ? new FirstRunDialog(Theme.MakeIcon()) : new SettingsForm(new Settings(), true, 64, Theme.MakeIcon());
+    f.StartPosition = FormStartPosition.CenterScreen;
+    if (Environment.GetEnvironmentVariable("DUMP_LAYOUT") == "1")
+        f.Shown += (_, _) => { void Dump(Control c, int d) { Console.WriteLine($"{new string(' ', d * 2)}{c.GetType().Name} {c.Bounds} min={c.MinimumSize} max={c.MaximumSize} \"{(c.Text.Length > 30 ? c.Text[..30] : c.Text)}\""); foreach (Control k in c.Controls) Dump(k, d + 1); } Console.WriteLine($"Form client {f.ClientSize} size {f.Size} min={f.MinimumSize}"); Dump(f.Controls[0], 0); };
+    var t = new System.Windows.Forms.Timer { Interval = 8000 }; t.Tick += (_, _) => f.Close(); t.Start();
+    Application.Run(f);
+    return 0;
+}
 if (args.Contains("--firstrun")) { using var d = new FirstRunDialog(Theme.MakeIcon()); Console.WriteLine("Result: " + d.ShowDialog()); return 0; }
 if (args.Length == 4 && args[0] == "--render-overlay")
 {

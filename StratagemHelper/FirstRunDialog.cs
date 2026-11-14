@@ -1,13 +1,14 @@
 namespace StratagemHelper;
 
 /// <summary>
-/// Shown once, the first time the app opens: offers to start with Windows (into the tray) and gives a
-/// three-line quick start. DialogResult.Yes = start with Windows.
+/// Shown once, the first time the app opens: offers to start with Windows and gives a short quick start.
+/// DialogResult.Yes = start with Windows. Enter = yes, Esc = not now.
 /// </summary>
 internal sealed class FirstRunDialog : Form
 {
     public FirstRunDialog(Icon icon)
     {
+        Theme.PrepareForm(this);
         const int W = 500, Pad = 22, Inner = W - Pad * 2;
 
         Text = "Welcome to Stratagem Helper";
@@ -33,7 +34,7 @@ internal sealed class FirstRunDialog : Form
         header.Controls.Add(new Label
         {
             Text = "WELCOME, HELLDIVER", Font = Theme.Title, ForeColor = Theme.Yellow,
-            AutoSize = true, Location = new Point(Pad - 3, 8),
+            AutoSize = true, Location = new Point(Pad - 3, 8), AccessibleName = "Welcome, Helldiver",
         });
         root.Controls.Add(header);
         root.Controls.Add(new HazardStripe { Width = W, Margin = Padding.Empty });
@@ -47,24 +48,24 @@ internal sealed class FirstRunDialog : Form
         body.Controls.Add(new SectionHeader("Start with Windows?") { Width = Inner, Margin = new Padding(0, 0, 0, 6) });
         body.Controls.Add(new Label
         {
-            Text = "Stratagem Helper can start when you sign in to Windows and wait quietly in the system tray, " +
-                   "so it's always ready when you play. It only acts while Helldivers 2 is the active window.",
+            Text = "Want Stratagem Helper to start with Windows? It'll sit quietly in the system tray, " +
+                   "ready whenever you play.",
             AutoSize = true, MaximumSize = new Size(Inner, 0), ForeColor = Theme.Text, Margin = new Padding(0, 0, 0, 6),
         });
         body.Controls.Add(new Label
         {
-            Text = "YOU CAN CHANGE THIS ANY TIME IN SETTINGS › GENERAL.",
+            Text = "You can change this any time in Settings.",
             AutoSize = true, Font = Theme.Small, ForeColor = Theme.Muted, Margin = new Padding(0, 0, 0, 14),
         });
 
         body.Controls.Add(new SectionHeader("Quick start") { Width = Inner, Margin = new Padding(0, 0, 0, 6) });
         foreach (var line in new[]
         {
-            "1.  In a mission, hold Ctrl and press C to scan your loadout.",
-            "2.  Call in with Ctrl + 1–9, or Numpad 1–9 on its own.",
-            "3.  Or turn on voice and say “call in” + a stratagem.",
+            "1.  In a mission, hold Ctrl and press C to grab your loadout.",
+            "2.  Call in with Ctrl + 1–9, or just Numpad 1–9.",
+            "3.  Or turn on voice and say “call in” and a stratagem.",
         })
-            body.Controls.Add(new Label { Text = line, AutoSize = true, ForeColor = Theme.Text, Margin = new Padding(0, 0, 0, 3) });
+            body.Controls.Add(new Label { Text = line, AutoSize = true, MaximumSize = new Size(Inner, 0), ForeColor = Theme.Text, Margin = new Padding(0, 0, 0, 3) });
 
         var buttons = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0, 18, 0, 0), WrapContents = false };
         var yes = new HdButton("Yes, start with Windows", primary: true) { Margin = new Padding(0, 0, 10, 0), DialogResult = DialogResult.Yes };
@@ -77,6 +78,9 @@ internal sealed class FirstRunDialog : Form
         Controls.Add(root);
         AcceptButton = yes;
         CancelButton = no;
+        ActiveControl = yes;
+
+        Theme.ApplyTextScale(this);
     }
 
     protected override void OnHandleCreated(EventArgs e)

@@ -20,6 +20,9 @@
     <Compile Include="..\..\StratagemHelper\Stats.cs" Link="Stats.cs" />
     <Compile Include="..\..\StratagemHelper\Sounds.cs" Link="Sounds.cs" />
     <Compile Include="..\..\StratagemHelper\FirstRunDialog.cs" Link="FirstRunDialog.cs" />
+    <Compile Include="..\..\StratagemHelper\Startup.cs" Link="Startup.cs" />
+    <Compile Include="..\..\StratagemHelper\Updater.cs" Link="Updater.cs" />
+    <Compile Include="..\..\StratagemHelper\SettingsForm.cs" Link="SettingsForm.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.Speech" Version="11.0.0" />
