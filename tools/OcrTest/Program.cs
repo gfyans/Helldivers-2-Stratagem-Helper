@@ -1,0 +1,91 @@
+﻿// Runs the app's MenuReader against saved full-screen captures.
+//   dotnet run -- <capture.png> [...]          report what is detected
+//   dotnet run -- --learn <capture.png> [...]  build the arrow template from rows whose code is known
+using System.Drawing;
+using StratagemHelper;
+
+if (args.Contains("--voice")) return FeatureTests.Voice() + FeatureTests.Stats();
+if (args.Contains("--keys")) return FeatureTests.Keys();
+if (args.Contains("--overlay")) { FeatureTests.Overlay(6); return 0; }
+if (args.Length == 4 && args[0] == "--render-overlay")
+{
+    // README image: the loadout panel composited beside the real (open) menu on a capture.
+    // Usage: --render-overlay <capture.png> <out.png> <crop width>x<crop height>
+    using var cap = new Bitmap(args[1]);
+    var size = args[3].Split('x').Select(int.Parse).ToArray();
+    using var ov = new LoadoutOverlay();
+    ov.SetRows(new string?[] { "Reinforce", "SOS Beacon", "Resupply", "Eagle Cluster Bomb", "EAT-17 Expendable Anti-Tank", "Nova", "A/AC-8 Autocannon Sentry", null, null });
+    var (img, bounds) = ov.Render(new Rectangle(0, 0, cap.Width, cap.Height), menuOpen: true);
+    using var outBmp = new Bitmap(size[0], size[1]);
+    using (var g = Graphics.FromImage(outBmp))
+    {
+        g.DrawImage(cap, new Rectangle(0, 0, size[0], size[1]), new Rectangle(0, 0, size[0], size[1]), GraphicsUnit.Pixel);
+        var attrs = new System.Drawing.Imaging.ImageAttributes();
+        attrs.SetColorMatrix(new System.Drawing.Imaging.ColorMatrix { Matrix33 = 0.88f }); // same opacity as in game
+        g.DrawImage(img, bounds, 0, 0, img.Width, img.Height, GraphicsUnit.Pixel, attrs);
+    }
+    outBmp.Save(args[2]);
+    img.Dispose();
+    Console.WriteLine($"Saved {args[2]}");
+    return 0;
+}
+var db = DefaultStratagems.All;
+bool learn = args.Contains("--learn");
+var files = args.Where(a => a != "--learn").ToArray();
+
+if (learn)
+{
+    const int N = MenuReader.GlyphSize;
+    var sum = new double[N * N];
+    int count = 0;
+    foreach (var path in files)
+    {
+        using var full = new Bitmap(path);
+        var region = MenuReader.MenuRegion(new Rectangle(0, 0, full.Width, full.Height));
+        using var crop = full.Clone(region, full.PixelFormat);
+        foreach (var (name, glyphs) in await MenuReader.ReadGlyphsAsync(crop, full.Height))
+        {
+            var s = MenuReader.Match(name, db);
+            if (s == null || glyphs == null || glyphs.Count != s.Code.Length) continue;
+            for (int i = 0; i < glyphs.Count; i++)
+            {
+                var up = MenuReader.ToUp(glyphs[i], s.Code[i]);
+                for (int k = 0; k < up.Length; k++) sum[k] += up[k];
+                count++;
+            }
+        }
+    }
+    Console.WriteLine($"Learned from {count} arrows:");
+    var tpl = string.Concat(sum.Select(v => (char)('0' + (int)Math.Round(v / count * 9))));
+    for (int y = 0; y < N; y++) Console.WriteLine("  " + tpl.Substring(y * N, N));
+    Console.WriteLine("TEMPLATE=" + tpl);
+    return 0;
+}
+
+int failures = 0;
+foreach (var path in files)
+{
+    using var full = new Bitmap(path);
+    var region = MenuReader.MenuRegion(new Rectangle(0, 0, full.Width, full.Height));
+    using var crop = full.Clone(region, full.PixelFormat);
+
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+    var rows = await MenuReader.ReadAsync(crop, full.Height);
+    sw.Stop();
+
+    Console.WriteLine($"== {Path.GetFileName(path)}  ({rows.Count} rows, {sw.ElapsedMilliseconds} ms)");
+    for (int i = 0; i < rows.Count; i++)
+    {
+        var r = rows[i];
+        var match = MenuReader.Match(r.Name, db);
+        string verdict =
+            match == null && r.ScreenCode != null ? $"NEW - app learns it as {r.ScreenCode}" :
+            match == null ? "NO MATCH" :
+            r.ScreenCode == null ? "(no arrows read)" :
+            r.ScreenCode == match.Code ? "arrows OK" : $"ARROWS DIFFER (db {match.Code})";
+        if (verdict.StartsWith("NO") || verdict.StartsWith("ARROWS DIFFER")) failures++;
+        Console.WriteLine($"  Ctrl+{i + 1}  {r.Name,-22} -> {match?.Name ?? "?",-30} screen={r.ScreenCode ?? "-",-9} {verdict}");
+    }
+}
+Console.WriteLine(failures == 0 ? "ALL GOOD" : $"{failures} problem(s)");
+return failures == 0 ? 0 : 1;

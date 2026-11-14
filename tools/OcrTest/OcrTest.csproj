@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Test the app's real code. -->
+    <Compile Include="..\..\StratagemHelper\MenuReader.cs" Link="MenuReader.cs" />
+    <Compile Include="..\..\StratagemHelper\Data.cs" Link="Data.cs" />
+    <Compile Include="..\..\StratagemHelper\Native.cs" Link="Native.cs" />
+    <Compile Include="..\..\StratagemHelper\Voice.cs" Link="Voice.cs" />
+    <Compile Include="..\..\StratagemHelper\InputSender.cs" Link="InputSender.cs" />
+    <Compile Include="..\..\StratagemHelper\LoadoutOverlay.cs" Link="LoadoutOverlay.cs" />
+    <Compile Include="..\..\StratagemHelper\KeyboardHook.cs" Link="KeyboardHook.cs" />
+    <Compile Include="..\..\StratagemHelper\Theme.cs" Link="Theme.cs" />
+    <Compile Include="..\..\StratagemHelper\Bindings.cs" Link="Bindings.cs" />
+    <Compile Include="..\..\StratagemHelper\Stats.cs" Link="Stats.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Speech" Version="11.0.0" />
+  </ItemGroup>
+</Project>
