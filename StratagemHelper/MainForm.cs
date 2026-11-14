@@ -37,6 +37,15 @@ public sealed class MainForm : Form
     private readonly NotifyIcon _tray;
     private readonly Icon _icon = Theme.MakeIcon();
     private SettingsForm? _settingsForm;
+
+    // Updates
+    private readonly HdButton _updateBtn = new("Update", primary: true) { Visible = false };
+    private readonly System.Windows.Forms.Timer _updateTimer = new() { Interval = 15_000 }; // first check soon after start, then every 12 h
+    private Updater.Release? _available;
+    private string? _downloaded;
+    private bool _checking;
+    private string _updateInfo = "";
+    private readonly bool _justUpdated;
     private string _voiceInfo = "VOICE IS OFF";
 
     private bool _startHidden;
@@ -55,9 +64,10 @@ public sealed class MainForm : Form
         base.SetVisibleCore(value);
     }
 
-    public MainForm(bool startInTray = false)
+    public MainForm(bool startInTray = false, bool justUpdated = false)
     {
         _startHidden = startInTray;
+        _justUpdated = justUpdated;
         Text = "Stratagem Helper";
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
@@ -83,7 +93,6 @@ public sealed class MainForm : Form
             OverlayToggleRequested = ToggleOverlay,
             CtrlDown = OnCtrlDown,
             CtrlUp = OnCtrlUp,
-            OnlyWhenGameFocused = _settings.OnlyWhenGameFocused,
         };
         _voice.Heard += OnVoiceHeard;
 
@@ -109,6 +118,10 @@ public sealed class MainForm : Form
         _gameTimer.Start();
         _overlayTimer.Tick += (_, _) => UpdateOverlay();
         _overlayTimer.Start();
+        _updateTimer.Tick += async (_, _) => { _updateTimer.Interval = 12 * 60 * 60 * 1000; await CheckForUpdatesAsync(manual: false); };
+        if (_settings.AutoUpdate) _updateTimer.Start();
+        _updateInfo = $"Version {Updater.Current} · not checked yet";
+        if (_justUpdated) SetStatus($"Updated to v{Updater.Current}");
         ApplyVoiceMode();
         Resize += (_, _) => { if (WindowState == FormWindowState.Minimized) Hide(); };
     }
@@ -147,7 +160,13 @@ public sealed class MainForm : Form
         var settingsBtn = new HdButton("⚙  Settings");
         settingsBtn.Click += (_, _) => OpenSettings();
         header.Controls.Add(settingsBtn);
-        header.Layout += (_, _) => settingsBtn.Location = new Point(W - Pad - settingsBtn.Width, 16);
+        _updateBtn.Click += (_, _) => OnUpdateButton();
+        header.Controls.Add(_updateBtn);
+        header.Layout += (_, _) =>
+        {
+            settingsBtn.Location = new Point(W - Pad - settingsBtn.Width, 16);
+            _updateBtn.Location = new Point(settingsBtn.Left - 8 - _updateBtn.Width, 16);
+        };
         root.Controls.Add(header);
         root.Controls.Add(new HazardStripe { Width = W, Margin = Padding.Empty });
 
@@ -245,10 +264,11 @@ public sealed class MainForm : Form
         _settingsForm.SetVoiceInfo(_voiceInfo);
         _settingsForm.SettingsChanged += () =>
         {
-            _hook.OnlyWhenGameFocused = _settings.OnlyWhenGameFocused;
             UpdateOverlay();
             ApplyBindings();
             ApplyVoiceMode();
+            if (_settings.AutoUpdate && !_updateTimer.Enabled) _updateTimer.Start();
+            if (!_settings.AutoUpdate) _updateTimer.Stop();
             Storage.SaveSettings(_settings);
         };
         _settingsForm.HotkeysEnabledChanged += on =>
@@ -259,6 +279,8 @@ public sealed class MainForm : Form
         };
         _settingsForm.ReloadListRequested += ReloadStratagemList;
         _settingsForm.Status += (text, color) => SetStatus(text, color);
+        _settingsForm.SetUpdateInfo(_updateInfo);
+        _settingsForm.CheckUpdatesRequested += async () => await CheckForUpdatesAsync(manual: true);
         _settingsForm.CaptureRequested += done => _hook.Capture = done;
         _settingsForm.CaptureCancelled += () => _hook.Capture = null;
         _settingsForm.FormClosed += (_, _) => _hook.Capture = null;
@@ -274,6 +296,93 @@ public sealed class MainForm : Form
         RefreshSlotCodes();
         _settingsForm?.SetStratagemCount(_stratagems.Count);
         SetStatus($"Reloaded {_stratagems.Count} stratagems");
+    }
+
+    // ---------------- Updates ----------------
+
+    /// <summary>
+    /// Checks GitHub for a newer release. The release exe downloads + verifies it, then installs straight away
+    /// if Helldivers 2 isn't running, or as soon as it closes. Source builds just show the update button.
+    /// </summary>
+    private async Task CheckForUpdatesAsync(bool manual)
+    {
+        if (_checking || _downloaded != null) { if (manual && _downloaded != null) InstallUpdate(); return; }
+        _checking = true;
+        try
+        {
+            SetUpdateInfo("Checking for updates…");
+            var r = await Updater.CheckAsync();
+            if (r == null)
+            {
+                SetUpdateInfo($"Version {Updater.Current} · up to date (checked {DateTime.Now:HH:mm})");
+                if (manual) SetStatus($"You're up to date (v{Updater.Current})");
+                return;
+            }
+
+            _available = r;
+            if (!Updater.CanSelfUpdate)
+            {
+                SetUpdateInfo($"Version {Updater.Current} · v{r.Version} is available. This is a source build, so download it from GitHub.");
+                ShowUpdateButton($"⬆ v{r.Version} available");
+                SetStatus($"Update available: v{r.Version}");
+                return;
+            }
+
+            SetUpdateInfo($"Downloading v{r.Version}…");
+            _downloaded = await Updater.DownloadAsync(r);
+            ShowUpdateButton($"⬆ Update to v{r.Version}");
+            if (_gameRunning)
+            {
+                SetUpdateInfo($"v{r.Version} is ready · installs when Helldivers 2 closes (or press Update in the main window)");
+                SetStatus($"v{r.Version} ready — installs when Helldivers 2 closes");
+            }
+            else InstallUpdate();
+        }
+        catch (Exception ex)
+        {
+            SetUpdateInfo($"Version {Updater.Current} · update check failed: {ex.Message}");
+            if (manual) SetStatus("Update check failed: " + ex.Message, Theme.Danger);
+        }
+        finally { _checking = false; }
+    }
+
+    private void OnUpdateButton()
+    {
+        if (_downloaded != null) InstallUpdate();
+        else Updater.OpenReleasesPage(_available?.PageUrl);
+    }
+
+    /// <summary>Swaps in the downloaded exe and restarts (back to the tray if the window was hidden).</summary>
+    private void InstallUpdate()
+    {
+        if (_downloaded == null) return;
+        try
+        {
+            Updater.InstallAndRestart(_downloaded, startHidden: !Visible);
+            _exiting = true;
+            _tray.Visible = false;
+            Application.Exit();
+        }
+        catch (Exception ex)
+        {
+            _downloaded = null;
+            SetUpdateInfo("Couldn't install the update: " + ex.Message);
+            SetStatus("Couldn't install the update: " + ex.Message, Theme.Danger);
+            ShowUpdateButton($"⬆ v{_available?.Version} on GitHub");
+        }
+    }
+
+    private void ShowUpdateButton(string text)
+    {
+        _updateBtn.Text = text.ToUpperInvariant();
+        _updateBtn.Visible = true;
+        _updateBtn.Parent?.PerformLayout();
+    }
+
+    private void SetUpdateInfo(string text)
+    {
+        _updateInfo = text;
+        _settingsForm?.SetUpdateInfo(text);
     }
 
     // ---------------- Loadout slots ----------------
@@ -476,11 +585,6 @@ public sealed class MainForm : Form
 
     private void OnDetectRequested()
     {
-        if (!_settings.AutoDetect)
-        {
-            if (_settings.SoundCues) Sounds.Failure();
-            return;
-        }
         if (_detectTask is { IsCompleted: false }) return;
         _detectTask = Task.Run(DetectAsync);
     }
@@ -618,6 +722,7 @@ public sealed class MainForm : Form
         {
             _gameRunning = running;
             UpdateState();
+            if (!running && _downloaded != null) InstallUpdate(); // game closed: safe to restart now
         }
     }
 

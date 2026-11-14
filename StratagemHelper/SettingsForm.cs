@@ -11,11 +11,13 @@ internal sealed class SettingsForm : Form
 
     // General
     private readonly HdToggle _enabledBox = new("Enabled");
-    private readonly HdToggle _autoBox = new("Ctrl+C scans loadout from the in-game menu");
-    private readonly HdToggle _focusBox = new("Only when Helldivers 2 is focused");
     private readonly HdToggle _overlayBox = new("Show loadout overlay in game (top-left)");
     private readonly HdToggle _startupBox = new("Start with Windows (in the system tray)");
     private readonly HdToggle _soundBox = new("Sound cues when a scan succeeds or fails");
+
+    // Updates
+    private readonly HdToggle _autoUpdateBox = new("Check for updates automatically");
+    private readonly Label _updateInfo = new() { AutoSize = true, Font = Theme.Small, ForeColor = Theme.Muted, MaximumSize = new Size(Inner, 0) };
     private readonly HdRadio _wasdRadio = new("WASD");
     private readonly HdRadio _arrowRadio = new("Arrow keys");
     private readonly NumericUpDown _holdNum = new() { Minimum = 10, Maximum = 200, Width = 64 };
@@ -43,6 +45,7 @@ internal sealed class SettingsForm : Form
     public event Action? SettingsChanged;
     public event Action<bool>? HotkeysEnabledChanged;
     public event Action? ReloadListRequested;
+    public event Action? CheckUpdatesRequested;
     public event Action<string, Color?>? Status;
     /// <summary>Ask the main window to capture the next key / mouse button; the callback gets the binding id.</summary>
     public event Action<Action<string>>? CaptureRequested;
@@ -69,10 +72,9 @@ internal sealed class SettingsForm : Form
         BuildUi();
 
         _enabledBox.Checked = enabled;
-        _autoBox.Checked = settings.AutoDetect;
-        _focusBox.Checked = settings.OnlyWhenGameFocused;
         _overlayBox.Checked = settings.ShowOverlay;
         _soundBox.Checked = settings.SoundCues;
+        _autoUpdateBox.Checked = settings.AutoUpdate;
         _startupBox.Checked = Startup.IsEnabled();
         _wasdRadio.Checked = !settings.UseArrowKeys;
         _arrowRadio.Checked = settings.UseArrowKeys;
@@ -94,6 +96,8 @@ internal sealed class SettingsForm : Form
         _countLabel.Text = $"{n} STRATAGEMS KNOWN  ·  NEW ONES ARE LEARNED AUTOMATICALLY WHEN YOU SCAN";
 
     public void SetVoiceInfo(string text) => _voiceInfo.Text = text.ToUpperInvariant();
+
+    public void SetUpdateInfo(string text) => _updateInfo.Text = text.ToUpperInvariant();
 
     // ---------------- Layout ----------------
 
@@ -137,10 +141,10 @@ internal sealed class SettingsForm : Form
         root.Controls.Add(header);
         root.Controls.Add(new HazardStripe { Width = W, Margin = Padding.Empty });
 
-        var tabs = new HdTabs("General", "Controls", "Voice", "Stratagems") { Width = W, Margin = Padding.Empty };
+        var tabs = new HdTabs("General", "Controls", "Voice", "Stratagems", "Updates") { Width = W, Margin = Padding.Empty };
         root.Controls.Add(tabs);
 
-        var pages = new[] { BuildGeneral(), BuildControls(), BuildVoice(), BuildStratagems() };
+        var pages = new[] { BuildGeneral(), BuildControls(), BuildVoice(), BuildStratagems(), BuildUpdates() };
         // Fixed-size host sized to the tallest page so the window doesn't jump between tabs.
         var host = new Panel { Margin = Padding.Empty, BackColor = Theme.Bg };
         int maxH = 0;
@@ -166,7 +170,7 @@ internal sealed class SettingsForm : Form
     {
         var page = Page();
         page.Controls.Add(new SectionHeader("General") { Width = Inner, Margin = new Padding(0, 0, 0, 4) });
-        foreach (var t in new HdToggle[] { _enabledBox, _autoBox, _focusBox, _startupBox })
+        foreach (var t in new HdToggle[] { _enabledBox, _startupBox })
         {
             t.Margin = new Padding(2, 1, 0, 1);
             page.Controls.Add(t);
@@ -217,8 +221,6 @@ internal sealed class SettingsForm : Form
         page.Controls.Add(Hint("Raise these if the game drops inputs or picks the wrong stratagem."));
 
         _enabledBox.CheckedChanged += (_, _) => { if (!_loading) HotkeysEnabledChanged?.Invoke(_enabledBox.Checked); };
-        _autoBox.CheckedChanged += (_, _) => Change(() => _settings.AutoDetect = _autoBox.Checked);
-        _focusBox.CheckedChanged += (_, _) => Change(() => _settings.OnlyWhenGameFocused = _focusBox.Checked);
         _overlayBox.CheckedChanged += (_, _) => Change(() => _settings.ShowOverlay = _overlayBox.Checked);
         _wasdRadio.CheckedChanged += (_, _) => Change(() => _settings.UseArrowKeys = _arrowRadio.Checked);
         _arrowRadio.CheckedChanged += (_, _) => Change(() => _settings.UseArrowKeys = _arrowRadio.Checked);
@@ -321,6 +323,41 @@ internal sealed class SettingsForm : Form
         _voicePtt.CheckedChanged += (_, _) => { if (_voicePtt.Checked) Mode(1); };
         _voiceAlways.CheckedChanged += (_, _) => { if (_voiceAlways.Checked) Mode(2); };
         _confNum.ValueChanged += (_, _) => Change(() => _settings.VoiceConfidence = (int)_confNum.Value);
+        return page;
+    }
+
+    private Control BuildUpdates()
+    {
+        var page = Page();
+        page.Controls.Add(new SectionHeader("Version") { Width = Inner, Margin = new Padding(0, 0, 0, 6) });
+        page.Controls.Add(new Label
+        {
+            Text = $"STRATAGEM HELPER v{Updater.Current}", Font = Theme.Heading, ForeColor = Theme.Text,
+            AutoSize = true, Margin = new Padding(0, 0, 0, 4),
+        });
+        _updateInfo.Margin = new Padding(0, 0, 0, 10);
+        page.Controls.Add(_updateInfo);
+
+        var btnRow = Row();
+        var checkBtn = new HdButton("Check now") { Margin = new Padding(0, 0, 10, 0) };
+        checkBtn.Click += (_, _) => CheckUpdatesRequested?.Invoke();
+        var releasesBtn = new HdButton("View releases") { Margin = Padding.Empty };
+        releasesBtn.Click += (_, _) => Updater.OpenReleasesPage();
+        btnRow.Controls.Add(checkBtn);
+        btnRow.Controls.Add(releasesBtn);
+        page.Controls.Add(btnRow);
+
+        page.Controls.Add(new SectionHeader("Automatic updates") { Width = Inner, Margin = new Padding(0, 18, 0, 4) });
+        _autoUpdateBox.Margin = new Padding(2, 1, 0, 0);
+        page.Controls.Add(_autoUpdateBox);
+        var hint = Hint("Checks GitHub when the app starts and every 12 hours. New versions download in the background, " +
+                        "are checked against GitHub's SHA-256 checksum, and install by themselves while Helldivers 2 isn't " +
+                        "running, so you're never interrupted mid-mission.", 0);
+        hint.Margin = new Padding(30, 0, 0, 0);
+        hint.MaximumSize = new Size(Inner - 30, 0);
+        page.Controls.Add(hint);
+
+        _autoUpdateBox.CheckedChanged += (_, _) => Change(() => _settings.AutoUpdate = _autoUpdateBox.Checked);
         return page;
     }
 

@@ -18,8 +18,9 @@ public sealed class Settings
 {
     public string[] Slots { get; set; } = new string[9];
     public bool UseArrowKeys { get; set; } = false;
-    public bool OnlyWhenGameFocused { get; set; } = true;
-    public bool AutoDetect { get; set; } = true;
+
+    /// <summary>Check GitHub for new releases (startup + every 12 h) and install them while the game isn't running.</summary>
+    public bool AutoUpdate { get; set; } = true;
 
     /// <summary>Play the scan success / failure sounds.</summary>
     public bool SoundCues { get; set; } = true;
