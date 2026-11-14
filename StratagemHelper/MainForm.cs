@@ -23,6 +23,7 @@ public sealed class MainForm : Form
     // In-game loadout panel
     private readonly System.Windows.Forms.Timer _overlayTimer = new() { Interval = 400 };
     private bool _overlayHidden; // Ctrl+V: temporary, cleared by the next successful scan
+    private bool _scanning;      // the panel is hidden during a scan so it isn't read as part of the menu
 
     private readonly HdComboBox[] _combos = new HdComboBox[9];
     private readonly ArrowCode[] _codeLabels = new ArrowCode[9];
@@ -596,7 +597,7 @@ public sealed class MainForm : Form
     /// <summary>Show the panel only while Helldivers 2 is the active window (checked every 400 ms).</summary>
     private void UpdateOverlay()
     {
-        bool want = _settings.ShowOverlay && !_overlayHidden && _hook.Enabled && _overlay.HasRows;
+        bool want = _settings.ShowOverlay && !_overlayHidden && !_scanning && _hook.Enabled && _overlay.HasRows;
         _overlay.ShowOn(want ? LoadoutOverlay.GameScreen() : null);
     }
 
@@ -625,6 +626,10 @@ public sealed class MainForm : Form
 
     private async Task DetectAsync()
     {
+        // The loadout panel sits inside the area that's captured (beside the menu, or over it when the app opened the
+        // menu itself), and its rows would be read as menu rows. Hide it until the scan is over; the delay below gives
+        // the screen time to redraw without it.
+        Invoke(() => { _scanning = true; UpdateOverlay(); });
         try
         {
             await Task.Delay(250); // in case the scan was triggered before the menu finished drawing
@@ -655,6 +660,10 @@ public sealed class MainForm : Form
         {
             if (_settings.SoundCues) Sounds.Failure();
             BeginInvoke(() => SetStatus("Something went wrong reading the menu: " + ex.Message, Theme.Danger));
+        }
+        finally
+        {
+            BeginInvoke(() => { _scanning = false; UpdateOverlay(); });
         }
     }
 
