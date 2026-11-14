@@ -1,0 +1,13 @@
+# Build output
+bin/
+obj/
+publish/
+*.user
+.vs/
+
+# Personal data written next to the exe at runtime (also inside bin/, listed here in case the app is run from elsewhere)
+settings.json
+stats.json
+
+# Full-screen game captures used for local testing (may contain your in-game name) — capture your own with tools/capture-on-ctrl.ps1
+captures/
