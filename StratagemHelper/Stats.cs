@@ -14,6 +14,9 @@ internal sealed class Stats
 
     public Dictionary<string, Day> Days { get; set; } = new();
 
+    // Reused: a new options object each time makes System.Text.Json rebuild its serializer on every call-in.
+    private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
+
     private static string PathName => System.IO.Path.Combine(Storage.Folder, "stats.json");
     private static string Key(DateTime d) => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
@@ -30,7 +33,7 @@ internal sealed class Stats
 
     private void Save()
     {
-        try { File.WriteAllText(PathName, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true })); } catch { }
+        try { File.WriteAllText(PathName, JsonSerializer.Serialize(this, Json)); } catch { }
     }
 
     /// <summary>How a call-in was triggered, which decides how many keypresses it saved.</summary>

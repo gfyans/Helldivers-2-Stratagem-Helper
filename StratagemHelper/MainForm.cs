@@ -34,6 +34,7 @@ public sealed class MainForm : Form
     private readonly Label _status = new() { AutoSize = false, AutoEllipsis = true, ForeColor = Theme.Muted, Text = "", Font = Theme.Small, TextAlign = ContentAlignment.MiddleRight };
     private readonly System.Windows.Forms.Timer _gameTimer = new() { Interval = 2000 };
     private bool _gameRunning;
+    private IntPtr _gameWindow; // the game's window, once it has been in the foreground
     private readonly NotifyIcon _tray;
     private readonly Icon _icon = Theme.MakeIcon();
     private SettingsForm? _settingsForm;
@@ -746,14 +747,21 @@ public sealed class MainForm : Form
 
     private void CheckGame()
     {
-        bool running = KeyboardHook.GameProcessNames.Any(n =>
+        // Scanning the process list takes ~15 ms, so it's only done while the game's window isn't known. Once the game
+        // has been the active window, "is that window still the game's?" answers instead (a couple of cheap lookups),
+        // so nothing here competes with the game while you play or are alt-tabbed out of it.
+        var fg = Native.GetForegroundWindow();
+        if (GameWindow.Is(fg)) _gameWindow = fg;
+        bool running = (_gameWindow != IntPtr.Zero && GameWindow.Is(_gameWindow)) || GameWindow.ProcessNames.Any(n =>
         {
             var procs = System.Diagnostics.Process.GetProcessesByName(n);
             foreach (var p in procs) p.Dispose();
             return procs.Length > 0;
         });
+        if (!running) _gameWindow = IntPtr.Zero;
         if (running != _gameRunning || _stateLabel.Text.Length == 0)
         {
+            if (!running) GameWindow.Forget(); // its process id may be reused
             _gameRunning = running;
             UpdateState();
             if (!running && _downloaded != null) InstallUpdate(); // game closed: safe to restart now
@@ -843,6 +851,8 @@ public sealed class MainForm : Form
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         _overlayTimer.Stop();
+        _gameTimer.Stop();
+        _updateTimer.Stop();
         _voice.Dispose();
         _overlay.Dispose();
         _hook.Dispose();

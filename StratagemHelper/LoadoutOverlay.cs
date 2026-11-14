@@ -14,7 +14,7 @@ internal sealed class LoadoutOverlay : Form
     private Rectangle _screen;
     private bool _menuOpen;
     private Font? _nameFont, _badgeFont;
-    private int _row, _badge, _pad;
+    private int _row, _badge, _pad, _nameW;
 
     // Positions as fractions of screen height (the HUD scales with height).
     // Top sits just below the reinforcements icon in the HUD's top-left corner (icon ends ~0.075 x screen height).
@@ -51,7 +51,7 @@ internal sealed class LoadoutOverlay : Form
                          .Where(r => !string.IsNullOrEmpty(r.name))
                          .Select(r => (r.slot, MenuReader.StripDesignation(r.name!).ToUpperInvariant()))
                          .ToList();
-        Relayout();
+        Relayout(contentChanged: true);
     }
 
     public bool HasRows => _rows.Count > 0;
@@ -78,7 +78,11 @@ internal sealed class LoadoutOverlay : Form
         if (!Visible) Show();
     }
 
-    private void Relayout()
+    /// <summary>
+    /// Sizes and places the panel. Moving it (Ctrl opens the menu) is just a window move: text is only measured and
+    /// the panel only repainted when its rows, fonts or size change.
+    /// </summary>
+    private void Relayout(bool contentChanged = false)
     {
         if (_screen.IsEmpty) return;
         double h = _screen.Height;
@@ -92,15 +96,19 @@ internal sealed class LoadoutOverlay : Form
             _badgeFont?.Dispose();
             _nameFont = new Font(Theme.Heading.FontFamily, row * 0.58f, FontStyle.Regular, GraphicsUnit.Pixel);
             _badgeFont = new Font(Theme.Badge.FontFamily, _badge * 0.78f, FontStyle.Bold, GraphicsUnit.Pixel);
+            contentChanged = true;
         }
 
-        int nameW = _rows.Count == 0 ? 0 : _rows.Max(r => TextRenderer.MeasureText(r.name, _nameFont).Width);
-        int w = _pad + 3 + _pad + _badge + _pad + nameW + _pad * 2;
+        if (contentChanged)
+            _nameW = _rows.Count == 0 ? 0 : _rows.Max(r => TextRenderer.MeasureText(r.name, _nameFont).Width);
+        int w = _pad + 3 + _pad + _badge + _pad + _nameW + _pad * 2;
         int hgt = _pad + _rows.Count * _row + _pad;
         int x = _screen.X + (int)(h * (_menuOpen ? PosLeftMenuOpen : PosLeft));
         int y = _screen.Y + (int)(h * PosTop);
-        Bounds = new Rectangle(x, y, w, hgt);
-        Invalidate();
+        var bounds = new Rectangle(x, y, w, hgt);
+        bool resized = bounds.Size != Size;
+        if (bounds != Bounds) Bounds = bounds;
+        if (resized || contentChanged) Invalidate();
     }
 
     protected override void OnPaint(PaintEventArgs e) => Draw(e.Graphics, Width, Height);
@@ -110,7 +118,7 @@ internal sealed class LoadoutOverlay : Form
     {
         _screen = screen;
         _menuOpen = menuOpen;
-        Relayout();
+        Relayout(contentChanged: true);
         var bmp = new Bitmap(Width, Height);
         using (var g = Graphics.FromImage(bmp)) Draw(g, Width, Height);
         return (bmp, Bounds);
@@ -145,14 +153,6 @@ internal sealed class LoadoutOverlay : Form
     public static Rectangle? GameScreen()
     {
         var hwnd = Native.GetForegroundWindow();
-        Native.GetWindowThreadProcessId(hwnd, out uint pid);
-        try
-        {
-            using var p = System.Diagnostics.Process.GetProcessById((int)pid);
-            if (!KeyboardHook.GameProcessNames.Any(n => string.Equals(n, p.ProcessName, StringComparison.OrdinalIgnoreCase)))
-                return null;
-        }
-        catch { return null; }
-        return MenuReader.MonitorOf(hwnd);
+        return GameWindow.Is(hwnd) ? MenuReader.MonitorOf(hwnd) : null;
     }
 }
