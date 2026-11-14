@@ -18,6 +18,7 @@
     <Compile Include="..\..\StratagemHelper\Theme.cs" Link="Theme.cs" />
     <Compile Include="..\..\StratagemHelper\Bindings.cs" Link="Bindings.cs" />
     <Compile Include="..\..\StratagemHelper\Stats.cs" Link="Stats.cs" />
+    <Compile Include="..\..\StratagemHelper\FirstRunDialog.cs" Link="FirstRunDialog.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.Speech" Version="11.0.0" />

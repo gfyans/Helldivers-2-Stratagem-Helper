@@ -21,6 +21,9 @@ public sealed class Settings
     public bool OnlyWhenGameFocused { get; set; } = true;
     public bool AutoDetect { get; set; } = true;
 
+    /// <summary>The one-time "start with Windows?" welcome has been answered.</summary>
+    public bool FirstRunDone { get; set; }
+
     // One-touch call-ins: binding ids (see Bindings) for slots 1-9 and the scan. Default: numpad.
     public string?[] SlotBindings { get; set; } = { "K97", "K98", "K99", "K100", "K101", "K102", "K103", "K104", "K105" };
     public string? ScanBinding { get; set; } = "K96";

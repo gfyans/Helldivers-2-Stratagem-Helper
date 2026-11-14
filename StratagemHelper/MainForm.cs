@@ -640,6 +640,31 @@ public sealed class MainForm : Form
         Theme.ApplyDarkTitleBar(this);
     }
 
+    /// <summary>First time the window opens: offer "start with Windows" once (skipped if it's already on).</summary>
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        if (_settings.FirstRunDone) return;
+        _settings.FirstRunDone = true;
+        Storage.SaveSettings(_settings);
+        if (Startup.IsEnabled()) return;
+
+        BeginInvoke(() =>
+        {
+            using var dlg = new FirstRunDialog(_icon);
+            if (dlg.ShowDialog(this) != DialogResult.Yes) return;
+            try
+            {
+                Startup.SetEnabled(true);
+                SetStatus("Will start with Windows");
+            }
+            catch (Exception ex)
+            {
+                SetStatus("Couldn't turn on start with Windows: " + ex.Message, Theme.Danger);
+            }
+        });
+    }
+
     /// <summary>The close button hides to the tray; use the tray menu's Exit to quit.</summary>
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
