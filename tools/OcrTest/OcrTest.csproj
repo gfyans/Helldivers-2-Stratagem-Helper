@@ -23,6 +23,7 @@
     <Compile Include="..\..\StratagemHelper\Startup.cs" Link="Startup.cs" />
     <Compile Include="..\..\StratagemHelper\Updater.cs" Link="Updater.cs" />
     <Compile Include="..\..\StratagemHelper\SettingsForm.cs" Link="SettingsForm.cs" />
+    <Compile Include="..\..\StratagemHelper\MainForm.cs" Link="MainForm.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.Speech" Version="11.0.0" />

@@ -30,6 +30,28 @@ if (args.Length == 4 && args[0] == "--form")
     Application.Run(f);
     return 0;
 }
+if (args.Length == 2 && args[0] == "--shot-main")
+{
+    // README image of the main window. Uses settings.json / stats.json next to this exe: --shot-main <out.png>
+    Theme.Init(1f, false);
+    var f = new MainForm { StartPosition = FormStartPosition.CenterScreen, TopMost = true };
+    f.Shown += async (_, _) =>
+    {
+        f.ActiveControl = null;
+        await Task.Delay(1500);
+        Dwm.GetWindowAttribute(f.Handle, 9, out var r, 16);
+        var b = Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
+        using var bmp = new Bitmap(b.Width, b.Height);
+        using (var g = Graphics.FromImage(bmp)) g.CopyFromScreen(b.Location, Point.Empty, b.Size);
+        bmp.Save(args[1]);
+        Console.WriteLine($"Saved {args[1]} ({b.Width}x{b.Height})");
+        var tray = typeof(MainForm).GetField("_tray", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(f) as NotifyIcon;
+        if (tray != null) tray.Visible = false;
+        Environment.Exit(0);
+    };
+    Application.Run(f);
+    return 0;
+}
 if (args.Contains("--firstrun")) { using var d = new FirstRunDialog(Theme.MakeIcon()); Console.WriteLine("Result: " + d.ShowDialog()); return 0; }
 if (args.Length == 4 && args[0] == "--render-overlay")
 {
