@@ -7,6 +7,17 @@ using StratagemHelper;
 if (args.Contains("--voice")) return FeatureTests.Voice() + FeatureTests.Stats();
 if (args.Contains("--keys")) return FeatureTests.Keys();
 if (args.Contains("--overlay")) { FeatureTests.Overlay(6); return 0; }
+if (args.Length == 2 && args[0] == "--sounds")
+{
+    // Writes the synthesised cues as WAV files and reports length / peak, without playing them.
+    foreach (var (name, wave) in new[] { ("success", Sounds.SuccessWave()), ("failure", Sounds.FailureWave()) })
+    {
+        var path = Path.Combine(args[1], name + ".wav");
+        File.WriteAllBytes(path, Sounds.ToWav(wave));
+        Console.WriteLine($"{name}: {wave.Length * 1000 / 44100} ms, peak {wave.Max(Math.Abs):0.00}, {new FileInfo(path).Length / 1024} KB -> {path}");
+    }
+    return 0;
+}
 if (args.Contains("--firstrun")) { using var d = new FirstRunDialog(Theme.MakeIcon()); Console.WriteLine("Result: " + d.ShowDialog()); return 0; }
 if (args.Length == 4 && args[0] == "--render-overlay")
 {

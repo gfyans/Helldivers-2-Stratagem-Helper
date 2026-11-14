@@ -478,7 +478,7 @@ public sealed class MainForm : Form
     {
         if (!_settings.AutoDetect)
         {
-            System.Media.SystemSounds.Hand.Play();
+            if (_settings.SoundCues) Sounds.Failure();
             return;
         }
         if (_detectTask is { IsCompleted: false }) return;
@@ -520,17 +520,17 @@ public sealed class MainForm : Form
                 if (rows.Count >= 3 && known >= rows.Count - 1)
                 {
                     Invoke(() => ApplyDetected(rows));
-                    System.Media.SystemSounds.Asterisk.Play();
+                    if (_settings.SoundCues) Sounds.Success();
                     return;
                 }
                 await Task.Delay(200);
             }
-            System.Media.SystemSounds.Hand.Play();
+            if (_settings.SoundCues) Sounds.Failure();
             BeginInvoke(() => SetStatus("Couldn't read the stratagem menu — hold Ctrl until it's open, then press C", Theme.Danger));
         }
         catch (Exception ex)
         {
-            System.Media.SystemSounds.Hand.Play();
+            if (_settings.SoundCues) Sounds.Failure();
             BeginInvoke(() => SetStatus("Menu read failed: " + ex.Message, Theme.Danger));
         }
     }
