@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Stratagem Helper</title>
 <meta name="description" content="Call in Helldivers 2 stratagems with one key, a mouse button, a foot pedal or your voice. Made for players whose hands hurt.">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -24,7 +25,7 @@
   h1, h2, h3, .eyebrow, .btn, nav { font-family: var(--cond); text-transform: uppercase; letter-spacing: .03em; }
   nav { display: flex; justify-content: space-between; align-items: center; padding: 18px 0; font-weight: 700; }
   nav .brand { color: var(--yellow); font-size: 1.3rem; text-decoration: none; display: flex; gap: 10px; align-items: center; }
-  nav .brand span.mark { background: var(--yellow); color: var(--bg); padding: 0 7px; }
+  nav .brand .mark { display: block; flex: none; }
   nav ul { list-style: none; display: flex; gap: 22px; margin: 0; padding: 0; }
   nav ul a { color: var(--muted); text-decoration: none; }
   nav ul a:hover { color: var(--yellow); }
@@ -84,7 +85,7 @@
 <div class="hazard" aria-hidden="true"></div>
 <div class="wrap">
   <nav aria-label="Main">
-    <a class="brand" href="#top"><span class="mark" aria-hidden="true">▲</span> Stratagem Helper</a>
+    <a class="brand" href="#top"><svg class="mark" viewBox="0 0 32 32" width="32" height="32" aria-hidden="true"><rect x="1" y="1" width="30" height="30" fill="#141414"/><rect x="3" y="3" width="26" height="26" fill="none" stroke="#ffe600" stroke-width="2"/><path d="M16 6 26 17H20V26H12V17H6Z" fill="#ffe600"/></svg> Stratagem Helper</a>
     <ul>
       <li><a href="#why">Why</a></li>
       <li><a href="#how">How it works</a></li>
