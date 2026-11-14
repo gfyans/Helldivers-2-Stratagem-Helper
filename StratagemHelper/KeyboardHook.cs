@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
 using static StratagemHelper.Native;
 
@@ -43,7 +43,6 @@ internal sealed class KeyboardHook : IDisposable
     public Action<string>? Capture { get; set; }
 
     public volatile bool Enabled = true;
-    public volatile bool OnlyWhenGameFocused = true;
 
     public const uint DetectVk = 0x43;        // C
     public const uint OverlayToggleVk = 0x56; // V
@@ -166,15 +165,14 @@ internal sealed class KeyboardHook : IDisposable
         if (!ctrlDown || !Enabled) return false;
 
         // Ctrl+C: read the loadout from the stratagem menu. Ctrl+V: show/hide the loadout overlay.
-        // These are copy/paste everywhere else, so they only ever act while the game itself is focused,
-        // even if "only when focused" is turned off.
-        if (vk == DetectVk && DetectRequested != null && GameIsFocused(strict: true))
+        // These are copy/paste everywhere else; like every hotkey here they only act while the game is focused.
+        if (vk == DetectVk && DetectRequested != null && GameIsFocused())
         {
             _swallowed.Add(id);
             DetectRequested();
             return true;
         }
-        if (vk == OverlayToggleVk && OverlayToggleRequested != null && GameIsFocused(strict: true))
+        if (vk == OverlayToggleVk && OverlayToggleRequested != null && GameIsFocused())
         {
             _swallowed.Add(id);
             OverlayToggleRequested();
@@ -196,9 +194,8 @@ internal sealed class KeyboardHook : IDisposable
         return false;
     }
 
-    private bool GameIsFocused(bool strict = false)
+    private bool GameIsFocused()
     {
-        if (!OnlyWhenGameFocused && !strict) return true;
         try
         {
             GetWindowThreadProcessId(GetForegroundWindow(), out uint pid);
@@ -219,7 +216,6 @@ internal sealed class KeyboardHook : IDisposable
     /// <summary>Thread-safe focus check (no caching) for use off the UI thread, e.g. voice commands.</summary>
     public bool GameIsFocusedNow()
     {
-        if (!OnlyWhenGameFocused) return true;
         try
         {
             GetWindowThreadProcessId(GetForegroundWindow(), out uint pid);
