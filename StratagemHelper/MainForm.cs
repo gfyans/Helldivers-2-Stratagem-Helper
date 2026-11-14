@@ -287,6 +287,7 @@ public sealed class MainForm : Form
         _settingsForm.Status += (text, color) => SetStatus(text, color);
         _settingsForm.SetUpdateInfo(_updateInfo);
         _settingsForm.CheckUpdatesRequested += async () => await CheckForUpdatesAsync(manual: true);
+        _settingsForm.RestartRequested += RestartApp;
         _settingsForm.CaptureRequested += done => _hook.Capture = done;
         _settingsForm.CaptureCancelled += () => _hook.Capture = null;
         _settingsForm.FormClosed += (_, _) => _hook.Capture = null;
