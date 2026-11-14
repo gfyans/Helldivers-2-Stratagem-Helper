@@ -55,12 +55,12 @@
   .space { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none;
            background: radial-gradient(ellipse 120% 80% at 50% -10%, #131925 0%, #07080b 65%); }
   .space .layer { position: absolute; left: 0; top: 0; width: 100%; will-change: transform; }
-  .space .planet { position: absolute; right: -24vw; top: 62vh; width: min(100vw, 1040px); aspect-ratio: 1; filter: brightness(.85); }
+  /* --pw is the planet's own size; the box is about twice that to fit the rings, centred on the same spot. */
+  .space .planet { --pw: min(100vw, 1040px); position: absolute; right: calc(-24vw - var(--pw) * .518); top: calc(62vh - var(--pw) * .518);
+      width: calc(var(--pw) * 2.037); aspect-ratio: 1; filter: brightness(.85); }
   .space .moon { position: absolute; left: 5vw; top: 100vh; width: 130px; aspect-ratio: 1; }
   .space .planet canvas, .space .moon canvas { display: block; width: 100%; height: 100%; opacity: 0; transition: opacity 1.2s; }
   .space canvas.ready { opacity: 1; }
-  .space .orbit { position: absolute; left: -16%; right: -16%; top: 42%; height: 16%; border-radius: 50%;
-      border: 1px dashed rgba(255, 230, 0, .16); transform: rotate(-14deg); }
   h2 { font-size: clamp(2rem, 5vw, 2.8rem); margin: 0 0 24px; display: flex; align-items: center; gap: 14px; }
   h2::before { content: ""; width: 8px; height: .9em; background: var(--yellow); }
   h3 { color: var(--yellow); font-size: 1.35rem; margin: 0 0 6px; }
@@ -105,7 +105,7 @@
   <canvas class="layer" data-speed="0.08" data-stars="far"></canvas>
   <canvas class="layer" data-speed="0.11" data-stars="near"></canvas>
   <div class="layer" data-speed="0.18"><div class="moon"><canvas width="260" height="260"></canvas></div></div>
-  <div class="layer" data-speed="0.3"><div class="planet"><canvas width="720" height="720"></canvas><div class="orbit"></div></div></div>
+  <div class="layer" data-speed="0.3"><div class="planet"><canvas width="1400" height="1400"></canvas></div></div>
 </div>
 <div class="hazard" aria-hidden="true"></div>
 <div class="topbar">
@@ -270,45 +270,103 @@
     const LIGHT = (() => { const v = [-0.78, -0.42, 0.42], m = Math.hypot(...v); return v.map(x => x / m); })();
     const nextFrame = () => new Promise(res => setTimeout(res, 0));
 
-    // Renders a lit sphere into a canvas, a few rows at a time so the page never freezes.
-    // shade(n, q) returns [r, g, b] for a surface normal n and rotated sample point q.
-    async function renderSphere(canvas, { haloSize, halo, atmo, atmoStrength, tilt, shade }) {
-      const S = canvas.width, c = S / 2, R = c / (1 + haloSize);
+    // Paints colour (c, a) under what's already at d[i], i.e. "behind" it.
+    function under(d, i, r, g, b, a) {
+      const ta = d[i + 3] / 255, oa = ta + a * (1 - ta);
+      if (oa <= 0) return;
+      d[i] = (d[i] * ta + r * a * (1 - ta)) / oa;
+      d[i + 1] = (d[i + 1] * ta + g * a * (1 - ta)) / oa;
+      d[i + 2] = (d[i + 2] * ta + b * a * (1 - ta)) / oa;
+      d[i + 3] = oa * 255;
+    }
+
+    // Renders a lit sphere (and optional rings) into a canvas, a few rows at a time so the page never freezes.
+    // shade(n, q, lam) returns [r, g, b] for a surface normal n, rotated sample point q and sunlight amount lam.
+    // rings: { inner, outer, incline, roll, density(r) -> 0..1, colour(r) -> [r, g, b] }, radii in planet radii.
+    async function renderSphere(canvas, { haloSize, halo, atmo, atmoStrength, tilt, shade, rings }) {
+      const S = canvas.width, c = S / 2, R = c / Math.max(1 + haloSize, rings ? rings.outer + 0.02 : 0);
       const g = canvas.getContext("2d"), img = g.createImageData(S, S), d = img.data;
       const ct = Math.cos(tilt), st = Math.sin(tilt);
       const lightLen2D = Math.hypot(LIGHT[0], LIGHT[1]);
+      let n, Ln, ringSide;
+      if (rings) {
+        // Ring plane normal: tipped towards the viewer by `incline`, then turned on screen by `roll`.
+        const ci = Math.cos(rings.incline), si = Math.sin(rings.incline);
+        n = [Math.sin(rings.roll) * ci, -Math.cos(rings.roll) * ci, si];
+        Ln = LIGHT[0] * n[0] + LIGHT[1] * n[1] + LIGHT[2] * n[2];
+        ringSide = Ln > 0 ? 1 : 0.4; // seeing the unlit underside of the rings? then they're dimmer
+      }
+      const ringAt = (px, py, pz) => {
+        const r = Math.hypot(px, py, pz);
+        return r < rings.inner || r > rings.outer ? 0 : rings.density(r);
+      };
       for (let y = 0; y < S; y++) {
         for (let x = 0; x < S; x++) {
           const nx = (x + 0.5 - c) / R, ny = (y + 0.5 - c) / R, r2 = nx * nx + ny * ny, i = (y * S + x) * 4;
           const dist = Math.sqrt(r2);
-          // Atmosphere glow around the edge, brighter on the sunlit side.
-          if (dist >= 1) {
-            if (dist < 1 + haloSize) {
-              const t = 1 - (dist - 1) / haloSize;
-              const facing = (nx * LIGHT[0] + ny * LIGHT[1]) / dist / lightLen2D;
-              const a = Math.pow(t, 2.6) * smooth(-0.5, 1, facing) * halo;
-              d[i] = atmo[0]; d[i + 1] = atmo[1]; d[i + 2] = atmo[2]; d[i + 3] = a * 255;
+          const nz = dist < 1 ? Math.sqrt(1 - r2) : 0;
+
+          if (dist < 1) {
+            // Tilt the texture so features don't line up with the screen.
+            const q = [nx * ct - nz * st, ny, nx * st + nz * ct];
+            const lam = nx * LIGHT[0] + ny * LIGHT[1] + nz * LIGHT[2];
+            let [r, gg, b] = shade([nx, ny, nz], q, lam);
+            // Hazy atmosphere thickening towards the edge on the day side.
+            const rim = Math.pow(1 - nz, 2.2) * smooth(-0.25, 0.5, lam) * atmoStrength;
+            r += atmo[0] * rim; gg += atmo[1] * rim; b += atmo[2] * rim;
+            // Shadow of the rings falling across the planet.
+            if (rings && lam > 0 && Math.abs(Ln) > 1e-3) {
+              const s = -(nx * n[0] + ny * n[1] + nz * n[2]) / Ln;
+              if (s > 0) {
+                const k = 1 - 0.7 * ringAt(nx + s * LIGHT[0], ny + s * LIGHT[1], nz + s * LIGHT[2]);
+                r *= k; gg *= k; b *= k;
+              }
             }
-            continue;
+            const edge = clamp((1 - dist) * R + 0.5);
+            d[i] = clamp(r, 0, 255); d[i + 1] = clamp(gg, 0, 255); d[i + 2] = clamp(b, 0, 255); d[i + 3] = 255 * edge;
+          } else if (dist < 1 + haloSize) {
+            // Atmosphere glow around the edge, brighter on the sunlit side.
+            const t = 1 - (dist - 1) / haloSize;
+            const facing = (nx * LIGHT[0] + ny * LIGHT[1]) / dist / lightLen2D;
+            const a = Math.pow(t, 2.6) * smooth(-0.5, 1, facing) * halo;
+            d[i] = atmo[0]; d[i + 1] = atmo[1]; d[i + 2] = atmo[2]; d[i + 3] = a * 255;
           }
-          const nz = Math.sqrt(1 - r2);
-          // Tilt the texture so features don't line up with the screen.
-          const q = [nx * ct - nz * st, ny, nx * st + nz * ct];
-          const lam = nx * LIGHT[0] + ny * LIGHT[1] + nz * LIGHT[2];
-          let [r, gg, b] = shade([nx, ny, nz], q, lam);
-          // Hazy atmosphere thickening towards the edge on the day side.
-          const rim = Math.pow(1 - nz, 2.2) * smooth(-0.25, 0.5, lam) * atmoStrength;
-          r += atmo[0] * rim; gg += atmo[1] * rim; b += atmo[2] * rim;
-          const edge = clamp((1 - dist) * R + 0.5);
-          d[i] = clamp(r, 0, 255); d[i + 1] = clamp(gg, 0, 255); d[i + 2] = clamp(b, 0, 255); d[i + 3] = 255 * edge;
+
+          if (rings) {
+            // Where this pixel's line of sight crosses the ring plane.
+            const pz = -(nx * n[0] + ny * n[1]) / n[2];
+            const dens = ringAt(nx, ny, pz);
+            if (dens > 0.002) {
+              const hidden = dist < 1 && pz < nz; // behind the planet
+              if (!hidden) {
+                // In the planet's shadow? (the sunward ray from this point hits the planet)
+                const along = nx * LIGHT[0] + ny * LIGHT[1] + pz * LIGHT[2];
+                const shadow = along < 0 && nx * nx + ny * ny + pz * pz - along * along < 1 ? 0.06 : 1;
+                const [cr, cg, cb] = rings.colour(Math.hypot(nx, ny, pz));
+                const lit = (0.04 + 0.96 * ringSide) * shadow;
+                const a = dens * (ringSide < 1 ? 0.7 : 0.92);
+                if (pz >= 0 || dist >= 1 + haloSize || dist < 1) {
+                  // In front: paint over what's there.
+                  const ta = a, ba = d[i + 3] / 255, oa = ta + ba * (1 - ta);
+                  d[i] = (cr * lit * ta + d[i] * ba * (1 - ta)) / oa;
+                  d[i + 1] = (cg * lit * ta + d[i + 1] * ba * (1 - ta)) / oa;
+                  d[i + 2] = (cb * lit * ta + d[i + 2] * ba * (1 - ta)) / oa;
+                  d[i + 3] = oa * 255;
+                } else {
+                  under(d, i, cr * lit, cg * lit, cb * lit, a); // behind the thin glow
+                }
+              }
+            }
+          }
         }
-        if (y % 48 === 47) await nextFrame();
+        if (y % 32 === 31) await nextFrame();
       }
       g.putImageData(img, 0, 0);
       canvas.classList.add("ready");
     }
 
     function drawPlanet(canvas) {
+      const ringNoise = makeNoise(97);
       const terrain = makeNoise(11), warp = makeNoise(23), clouds = makeNoise(37), fires = makeNoise(51);
       const land = [
         [0.00, [10, 22, 34]], [0.40, [22, 46, 60]], [0.44, [38, 66, 72]],   // deep and shallow sea
@@ -317,6 +375,23 @@
       ];
       return renderSphere(canvas, {
         haloSize: 0.09, halo: 0.75, atmo: [255, 176, 92], atmoStrength: 0.75, tilt: 0.5,
+        rings: {
+          inner: 1.32, outer: 2.2, incline: 0.3, roll: -0.24,
+          density: r => {
+            const t = (r - 1.32) / (2.2 - 1.32);
+            const bands = ringNoise(r * 7, 0.5, 0.5, 4), fine = ringNoise(r * 60, 1.3, 0.2, 2);
+            let v = smooth(0, 0.05, t) * (1 - smooth(0.93, 1, t));
+            v *= 0.3 + 0.7 * smooth(0.3, 0.68, bands);
+            v *= 0.75 + 0.5 * (fine - 0.5);
+            v *= 1 - 0.92 * Math.exp(-Math.pow((t - 0.66) / 0.022, 2)); // a clear gap between the main rings
+            if (t < 0.22) v *= 0.35;                                     // faint inner ring
+            return clamp(v) * 0.9;
+          },
+          colour: r => {
+            const k = ringNoise(r * 4.5, 2.2, 0.9, 3);
+            return [168 + 50 * k, 146 + 44 * k, 118 + 36 * k];
+          },
+        },
         shade: ([nx, ny, nz], [x, y, z], lam) => {
           const s = 1.7;
           const w = warp(x * s + 3.1, y * s, z * s, 4) - 0.5;
