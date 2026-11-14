@@ -22,6 +22,9 @@ public sealed class Settings
     /// <summary>Check GitHub for new releases (startup + every 12 h) and install them while the game isn't running.</summary>
     public bool AutoUpdate { get; set; } = true;
 
+    /// <summary>In-game overlay opacity in percent (20-100).</summary>
+    public int OverlayOpacity { get; set; } = 85;
+
     /// <summary>App text size in percent: 100, 125, 150 or 200.</summary>
     public int TextSize { get; set; } = 100;
 

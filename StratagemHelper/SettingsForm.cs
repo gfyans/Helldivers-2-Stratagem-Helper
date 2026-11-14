@@ -18,6 +18,13 @@ internal sealed class SettingsForm : Form
     private readonly HdToggle _startupBox = new("Start with Windows");
     private readonly HdToggle _overlayBox = new("Show my loadout in the corner of the game");
     private readonly HdToggle _soundBox = new("Play a sound when a scan works or fails");
+    private readonly TrackBar _opacitySlider = new()
+    {
+        Minimum = 20, Maximum = 100, SmallChange = 5, LargeChange = 10, TickFrequency = 10,
+        Width = 240, AutoSize = false, Height = 30, TickStyle = TickStyle.None,
+        BackColor = Theme.Bg, AccessibleName = "Overlay opacity",
+    };
+    private readonly Label _opacityValue = new() { AutoSize = false, Size = new Size(56, 26), Font = Theme.Body, ForeColor = Theme.Text, TextAlign = ContentAlignment.MiddleLeft };
     private readonly HdRadio[] _sizeRadios = { new("100%"), new("125%"), new("150%"), new("200%") };
     private static readonly int[] Sizes = { 100, 125, 150, 200 };
     private readonly HdButton _restartBtn = new("Restart now") { Visible = false };
@@ -81,6 +88,8 @@ internal sealed class SettingsForm : Form
         _enabledBox.Checked = enabled;
         _overlayBox.Checked = settings.ShowOverlay;
         _soundBox.Checked = settings.SoundCues;
+        _opacitySlider.Value = Math.Clamp(settings.OverlayOpacity, 20, 100);
+        _opacityValue.Text = $"{_opacitySlider.Value}%";
         _autoUpdateBox.Checked = settings.AutoUpdate;
         _startupBox.Checked = Startup.IsEnabled();
         int sizeIdx = Array.IndexOf(Sizes, settings.TextSize);
@@ -211,6 +220,21 @@ internal sealed class SettingsForm : Form
         _overlayBox.Margin = new Padding(2, 1, 0, 0);
         page.Controls.Add(_overlayBox);
         page.Controls.Add(Hint("Press Ctrl+V in game to hide it. Needs borderless or windowed mode.", 0, Indent));
+
+        // Opacity slider: arrow keys / Page Up / Page Down work too; screen readers announce it as "Overlay opacity".
+        var opacityRow = Row(4);
+        opacityRow.Margin = new Padding(Indent, 4, 0, 0);
+        opacityRow.Controls.Add(Theme.MutedLabel("OPACITY", 78));
+        _opacitySlider.Margin = new Padding(0);
+        opacityRow.Controls.Add(_opacitySlider);
+        _opacityValue.Margin = new Padding(6, 0, 0, 0);
+        opacityRow.Controls.Add(_opacityValue);
+        page.Controls.Add(opacityRow);
+        _opacitySlider.ValueChanged += (_, _) =>
+        {
+            _opacityValue.Text = $"{_opacitySlider.Value}%";
+            Change(() => _settings.OverlayOpacity = _opacitySlider.Value);
+        };
 
         _soundBox.Margin = new Padding(2, 6, 0, 2);
         page.Controls.Add(_soundBox);

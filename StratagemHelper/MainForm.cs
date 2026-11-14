@@ -118,6 +118,7 @@ public sealed class MainForm : Form
         CheckGame();
         _gameTimer.Start();
         _overlayTimer.Tick += (_, _) => UpdateOverlay();
+        _overlay.SetOpacity(_settings.OverlayOpacity);
         _overlayTimer.Start();
         _updateTimer.Tick += async (_, _) => { _updateTimer.Interval = 12 * 60 * 60 * 1000; await CheckForUpdatesAsync(manual: false); };
         if (_settings.AutoUpdate) _updateTimer.Start();
@@ -273,6 +274,7 @@ public sealed class MainForm : Form
             UpdateOverlay();
             ApplyBindings();
             ApplyVoiceMode();
+            _overlay.SetOpacity(_settings.OverlayOpacity);
             if (_settings.AutoUpdate && !_updateTimer.Enabled) _updateTimer.Start();
             if (!_settings.AutoUpdate) _updateTimer.Stop();
             Storage.SaveSettings(_settings);

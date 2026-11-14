@@ -35,7 +35,7 @@ The Orbital 380mm Barrage, for example, is Ctrl plus seven arrows. With this it'
   - **Ctrl + 1–9**: hold Ctrl like normal and press a number.
   - **One key**: no Ctrl at all. It uses the numpad by default, or you can set mouse side buttons or a foot pedal.
   - **Voice**: say "call in" and then the stratagem, like "call in resupply". The "call in" part stops it going off when you're just chatting.
-- **Shows your loadout in the corner of the game**, so you know which number is which. Ctrl + V hides it.
+- **Shows your loadout in the corner of the game**, so you know which number is which. You can make it more or less see-through, and Ctrl + V hides it.
 - **Counts the keypresses it saves you**, today, this week and all time.
 - **Plays a sound** when a scan works or doesn't, so you don't need to look away.
 - **Starts with Windows** if you like, and waits in the system tray until you play.
@@ -132,7 +132,7 @@ Open **Settings** in the app, or right-click the tray icon. Changes take effect 
 
 | Tab | What's there |
 | --- | --- |
-| **General** | Turn hotkeys on or off, start with Windows, the overlay, sounds, text size, and input timing |
+| **General** | Turn hotkeys on or off, start with Windows, the overlay and how see-through it is, sounds, text size, and input timing |
 | **Controls** | Choose your one-key buttons for each slot and for scanning |
 | **Voice** | Turn voice on, pick a talk key, and set how strict it is |
 | **Stratagems** | Edit or reload the stratagem list |
