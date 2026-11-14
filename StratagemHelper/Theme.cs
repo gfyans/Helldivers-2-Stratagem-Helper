@@ -86,6 +86,20 @@ internal static class Theme
     {
         f.AutoScaleDimensions = new SizeF(96F, 96F);
         f.AutoScaleMode = AutoScaleMode.Dpi;
+        f.Load += (_, _) => HideFocusUntilKeyboard(f);
+    }
+
+    private const int WM_CHANGEUISTATE = 0x0127, UIS_SET = 1;
+
+    /// <summary>
+    /// Windows doesn't always start a window with focus rings hidden, so the first control would show one
+    /// before you've touched the keyboard. Start hidden; Tab, the arrow keys or Alt bring them back
+    /// (WinForms clears the flag itself). Skipped if "always show focus" is on in Windows.
+    /// </summary>
+    private static void HideFocusUntilKeyboard(Form f)
+    {
+        if (SystemInformation.MenuAccessKeysUnderlined) return;
+        SendMessage(f.Handle, WM_CHANGEUISTATE, (IntPtr)((UISF_HIDEFOCUS << 16) | UIS_SET), IntPtr.Zero);
     }
 
     /// <summary>Call at the end of a form's constructor: apply the app's own text size on top.</summary>
@@ -172,6 +186,18 @@ internal static class Theme
         n.Margin = new Padding(0, 1, 6, 0);
         n.AccessibleName = accessibleName;
     }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+    private const int WM_QUERYUISTATE = 0x0129, UISF_HIDEFOCUS = 0x1;
+
+    /// <summary>
+    /// True when the control has focus and Windows says focus should be visible: after the keyboard has
+    /// been used in the window, or always if "show focus" is turned on in Windows. Mouse-only use shows no ring.
+    /// </summary>
+    public static bool ShowsFocus(Control c) =>
+        c.Focused && c.IsHandleCreated &&
+        (SendMessage(c.Handle, WM_QUERYUISTATE, IntPtr.Zero, IntPtr.Zero).ToInt64() & UISF_HIDEFOCUS) == 0;
 
     /// <summary>A clearly visible keyboard-focus ring (2 px, high contrast).</summary>
     public static void DrawFocus(Graphics g, Rectangle r, Color? color = null)
@@ -372,6 +398,8 @@ internal sealed class HdComboBox : ComboBox
 
     private const int WM_PAINT = 0x000F;
 
+    protected override void OnChangeUICues(UICuesEventArgs e) { base.OnChangeUICues(e); Invalidate(); }
+
     /// <summary>Paint over the system dropdown button and border so they match the theme.</summary>
     protected override void WndProc(ref Message m)
     {
@@ -385,11 +413,11 @@ internal sealed class HdComboBox : ComboBox
         using (var bg = new SolidBrush(Theme.PanelAlt)) g.FillRectangle(bg, btn);
 
         int cx = btn.Left + btn.Width / 2, cy = Height / 2, a = Math.Max(4, Height / 7);
-        using (var pen = new Pen(Focused || DroppedDown ? Theme.Yellow : Theme.Muted, 2f))
+        using (var pen = new Pen(Theme.ShowsFocus(this) || DroppedDown ? Theme.Yellow : Theme.Muted, 2f))
             g.DrawLines(pen, new[] { new Point(cx - a, cy - a / 2), new Point(cx, cy + a / 2), new Point(cx + a, cy - a / 2) });
 
         g.SmoothingMode = SmoothingMode.None;
-        if (Focused || DroppedDown)
+        if (Theme.ShowsFocus(this) || DroppedDown)
         {
             using var focus = new Pen(Theme.Focus, 2f);
             g.DrawRectangle(focus, 1, 1, Width - 3, Height - 3);
@@ -472,9 +500,10 @@ internal class HdToggle : CheckBox
         }
         var tr = new Rectangle(box.Right + Height / 3, 0, Width - box.Right - Height / 3, Height);
         TextRenderer.DrawText(g, Text, Font, tr, Theme.Text, TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
-        if (Focused) Theme.DrawFocus(g, ClientRectangle);
+        if (Theme.ShowsFocus(this)) Theme.DrawFocus(g, ClientRectangle);
     }
 
+    protected override void OnChangeUICues(UICuesEventArgs e) { base.OnChangeUICues(e); Invalidate(); }
     protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
     protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
     protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); Invalidate(); }
@@ -561,6 +590,7 @@ internal sealed class HdBindBox : Button
     }
 
     protected override bool ShowFocusCues => false;
+    protected override void OnChangeUICues(UICuesEventArgs e) { base.OnChangeUICues(e); Invalidate(); }
 
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -571,7 +601,7 @@ internal sealed class HdBindBox : Button
         using (var p = new Pen(_capturing || hover ? Theme.Yellow : Theme.ControlBorder)) g.DrawRectangle(p, r);
         var color = _capturing ? Theme.OnAccent : string.IsNullOrEmpty(_binding) ? Theme.Muted : Theme.Text;
         TextRenderer.DrawText(g, Text, Font, r, color, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-        if (Focused && !_capturing) Theme.DrawFocus(g, ClientRectangle);
+        if (Theme.ShowsFocus(this) && !_capturing) Theme.DrawFocus(g, ClientRectangle);
     }
 
     protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); Invalidate(); }
@@ -668,6 +698,7 @@ internal sealed class HdTabs : Panel
         }
 
         protected override bool ShowFocusCues => false;
+    protected override void OnChangeUICues(UICuesEventArgs e) { base.OnChangeUICues(e); Invalidate(); }
 
         protected override void OnClick(EventArgs e)
         {
@@ -713,7 +744,7 @@ internal sealed class HdTabs : Panel
                 using var y = new SolidBrush(Theme.Yellow);
                 g.FillRectangle(y, 10, Height - bar, Width - 20, bar);
             }
-            if (Focused) Theme.DrawFocus(g, new Rectangle(4, 4, Width - 8, Height - bar - 6));
+            if (Theme.ShowsFocus(this)) Theme.DrawFocus(g, new Rectangle(4, 4, Width - 8, Height - bar - 6));
         }
     }
 }
@@ -745,12 +776,13 @@ internal sealed class HdButton : Button
     }
 
     protected override bool ShowFocusCues => false; // we draw our own, clearer one
+    protected override void OnChangeUICues(UICuesEventArgs e) { base.OnChangeUICues(e); Invalidate(); }
 
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
         // On the solid yellow primary button a light ring would vanish, so use the dark text colour there.
-        if (Focused) Theme.DrawFocus(e.Graphics, ClientRectangle, _primary ? Theme.OnAccent : null);
+        if (Theme.ShowsFocus(this)) Theme.DrawFocus(e.Graphics, ClientRectangle, _primary ? Theme.OnAccent : null);
     }
 
     protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); if (!_primary) ForeColor = Theme.OnAccent; }

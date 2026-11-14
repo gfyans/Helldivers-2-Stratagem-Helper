@@ -37,8 +37,8 @@ if (args.Length == 2 && args[0] == "--shot-main")
     var f = new MainForm { StartPosition = FormStartPosition.CenterScreen, TopMost = true };
     f.Shown += async (_, _) =>
     {
-        f.ActiveControl = null;
         await Task.Delay(1500);
+        if (Environment.GetEnvironmentVariable("SHOT_TAB") == "1") { f.Activate(); SendKeys.Send("{TAB}"); await Task.Delay(500); } // check keyboard focus rings
         Dwm.GetWindowAttribute(f.Handle, 9, out var r, 16);
         var b = Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
         using var bmp = new Bitmap(b.Width, b.Height);
