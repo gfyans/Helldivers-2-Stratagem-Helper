@@ -17,7 +17,8 @@ internal sealed class LoadoutOverlay : Form
     private int _row, _badge, _pad;
 
     // Positions as fractions of screen height (the HUD scales with height).
-    private const double PosLeft = 0.012, PosTop = 0.03, PosLeftMenuOpen = 0.32;
+    // Top sits just below the reinforcements icon in the HUD's top-left corner (icon ends ~0.075 x screen height).
+    private const double PosLeft = 0.012, PosTop = 0.088, PosLeftMenuOpen = 0.32;
 
     public LoadoutOverlay()
     {
@@ -54,6 +55,9 @@ internal sealed class LoadoutOverlay : Form
     }
 
     public bool HasRows => _rows.Count > 0;
+
+    /// <summary>How see-through the panel is: 20 (faint) to 100 (solid).</summary>
+    public void SetOpacity(int percent) => Opacity = Math.Clamp(percent, 20, 100) / 100.0;
 
     public void SetMenuOpen(bool open)
     {
