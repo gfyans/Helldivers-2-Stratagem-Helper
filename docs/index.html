@@ -23,6 +23,9 @@
   .wrap { max-width: 980px; margin: 0 auto; padding: 0 20px; }
   .hazard { height: 12px; background: repeating-linear-gradient(-45deg, var(--yellow) 0 14px, #111 14px 28px); }
   h1, h2, h3, .eyebrow, .btn, nav { font-family: var(--cond); text-transform: uppercase; letter-spacing: .03em; }
+  .topbar { position: sticky; top: 0; z-index: 10; background: rgba(14, 15, 16, .94); border-bottom: 1px solid var(--border);
+            backdrop-filter: blur(6px); }
+  section, #top { scroll-margin-top: 72px; }
   nav { display: flex; justify-content: space-between; align-items: center; padding: 18px 0; font-weight: 700; }
   nav .brand { color: var(--yellow); font-size: 1.3rem; text-decoration: none; display: flex; gap: 10px; align-items: center; }
   nav .brand .mark { display: block; flex: none; }
@@ -83,6 +86,7 @@
 </head>
 <body>
 <div class="hazard" aria-hidden="true"></div>
+<div class="topbar">
 <div class="wrap">
   <nav aria-label="Main">
     <a class="brand" href="#top"><svg class="mark" viewBox="0 0 32 32" width="32" height="32" aria-hidden="true"><rect x="1" y="1" width="30" height="30" fill="#141414"/><rect x="3" y="3" width="26" height="26" fill="none" stroke="#ffe600" stroke-width="2"/><path d="M16 6 26 17H20V26H12V17H6Z" fill="#ffe600"/></svg> Stratagem Helper</a>
@@ -92,6 +96,7 @@
       <li><a href="#download">Download</a></li>
     </ul>
   </nav>
+</div>
 </div>
 
 <main id="top">
