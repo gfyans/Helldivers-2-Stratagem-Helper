@@ -66,6 +66,7 @@ public sealed class MainForm : Form
 
     public MainForm(bool startInTray = false, bool justUpdated = false)
     {
+        Theme.PrepareForm(this);
         _startHidden = startInTray;
         _justUpdated = justUpdated;
         Text = "Stratagem Helper";
@@ -120,10 +121,11 @@ public sealed class MainForm : Form
         _overlayTimer.Start();
         _updateTimer.Tick += async (_, _) => { _updateTimer.Interval = 12 * 60 * 60 * 1000; await CheckForUpdatesAsync(manual: false); };
         if (_settings.AutoUpdate) _updateTimer.Start();
-        _updateInfo = $"Version {Updater.Current} · not checked yet";
-        if (_justUpdated) SetStatus($"Updated to v{Updater.Current}");
+        _updateInfo = "Not checked yet.";
+        if (_justUpdated) SetStatus($"Updated to version {Updater.Current}");
         ApplyVoiceMode();
         Resize += (_, _) => { if (WindowState == FormWindowState.Minimized) Hide(); };
+        Theme.ApplyTextScale(this);
     }
 
     private void RebuildIndex()
@@ -164,8 +166,10 @@ public sealed class MainForm : Form
         header.Controls.Add(_updateBtn);
         header.Layout += (_, _) =>
         {
-            settingsBtn.Location = new Point(W - Pad - settingsBtn.Width, 16);
-            _updateBtn.Location = new Point(settingsBtn.Left - 8 - _updateBtn.Width, 16);
+            // Positions follow the header's actual (scaled) size, so they hold at any text size / display scaling.
+            float k = header.Height / 78f;
+            settingsBtn.Location = new Point(header.ClientSize.Width - (int)(Pad * k) - settingsBtn.Width, (int)(16 * k));
+            _updateBtn.Location = new Point(settingsBtn.Left - (int)(8 * k) - _updateBtn.Width, settingsBtn.Top);
         };
         root.Controls.Add(header);
         root.Controls.Add(new HazardStripe { Width = W, Margin = Padding.Empty });
@@ -185,6 +189,8 @@ public sealed class MainForm : Form
             {
                 Size = new Size(Inner, 40), BackColor = Theme.Panel, ColumnCount = 3, RowCount = 1,
                 Margin = new Padding(0, 0, 0, 3), Padding = new Padding(5, 4, 8, 4),
+                // An explicit name stops Windows labelling the row with whatever text came before it.
+                AccessibleName = $"Slot {i + 1}", AccessibleRole = AccessibleRole.Grouping,
             };
             row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 40));
             row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 300));
@@ -193,7 +199,7 @@ public sealed class MainForm : Form
             _badges[i] = new KeyBadge((i + 1).ToString()) { Anchor = AnchorStyles.Left, Margin = new Padding(0) };
             row.Controls.Add(_badges[i], 0, 0);
 
-            var combo = new HdComboBox { Width = 290, Anchor = AnchorStyles.Left, Margin = new Padding(0) };
+            var combo = new HdComboBox { Width = 290, Anchor = AnchorStyles.Left, Margin = new Padding(0), AccessibleName = $"Slot {i + 1} stratagem" };
             int idx = i;
             combo.SelectedIndexChanged += (_, _) => OnSlotChanged(idx);
             _combos[i] = combo;
@@ -220,7 +226,7 @@ public sealed class MainForm : Form
             tile.Controls.Add(new Label { Text = titles[i], Font = Theme.Small, ForeColor = Theme.Muted, AutoSize = true, Location = new Point(10, 6), BackColor = Theme.Panel });
             _statNumbers[i] = new Label
             {
-                Text = "0", Font = new Font(Theme.Title.FontFamily, 15f, FontStyle.Bold), ForeColor = Theme.Yellow,
+                Text = "0", Font = new Font(Theme.Title.FontFamily, 15f * Theme.TextScale, FontStyle.Bold), ForeColor = Theme.Yellow,
                 AutoSize = true, Location = new Point(8, 22), BackColor = Theme.Panel,
             };
             _statCaptions[i] = new Label { Text = "", Font = Theme.Small, ForeColor = Theme.Muted, AutoSize = true, Location = new Point(10, 54), BackColor = Theme.Panel };
@@ -233,7 +239,7 @@ public sealed class MainForm : Form
 
         // ---- Status bar ----
         var footer = new Panel { Size = new Size(W, 30), BackColor = Theme.Panel, Margin = Padding.Empty };
-        footer.Paint += (_, e) => { using var p = new Pen(Theme.Border); e.Graphics.DrawLine(p, 0, 0, W, 0); };
+        footer.Paint += (_, e) => { using var p = new Pen(Theme.Border); e.Graphics.DrawLine(p, 0, 0, footer.Width, 0); };
         _statusDot.BackColor = Theme.Panel;
         _statusDot.Location = new Point(Pad - 2, 5);
         _stateLabel.BackColor = Theme.Panel;
@@ -295,7 +301,7 @@ public sealed class MainForm : Form
         ApplySlotsToUi();
         RefreshSlotCodes();
         _settingsForm?.SetStratagemCount(_stratagems.Count);
-        SetStatus($"Reloaded {_stratagems.Count} stratagems");
+        SetStatus("Stratagem list reloaded");
     }
 
     // ---------------- Updates ----------------
@@ -310,38 +316,38 @@ public sealed class MainForm : Form
         _checking = true;
         try
         {
-            SetUpdateInfo("Checking for updates…");
+            SetUpdateInfo("Checking…");
             var r = await Updater.CheckAsync();
             if (r == null)
             {
-                SetUpdateInfo($"Version {Updater.Current} · up to date (checked {DateTime.Now:HH:mm})");
-                if (manual) SetStatus($"You're up to date (v{Updater.Current})");
+                SetUpdateInfo("You're on the latest version.");
+                if (manual) SetStatus("You're on the latest version");
                 return;
             }
 
             _available = r;
             if (!Updater.CanSelfUpdate)
             {
-                SetUpdateInfo($"Version {Updater.Current} · v{r.Version} is available. This is a source build, so download it from GitHub.");
+                SetUpdateInfo($"Version {r.Version} is out. You can grab it from GitHub.");
                 ShowUpdateButton($"⬆ v{r.Version} available");
-                SetStatus($"Update available: v{r.Version}");
+                SetStatus($"Version {r.Version} is out");
                 return;
             }
 
-            SetUpdateInfo($"Downloading v{r.Version}…");
+            SetUpdateInfo($"Downloading version {r.Version}…");
             _downloaded = await Updater.DownloadAsync(r);
             ShowUpdateButton($"⬆ Update to v{r.Version}");
             if (_gameRunning)
             {
-                SetUpdateInfo($"v{r.Version} is ready · installs when Helldivers 2 closes (or press Update in the main window)");
-                SetStatus($"v{r.Version} ready — installs when Helldivers 2 closes");
+                SetUpdateInfo($"Version {r.Version} is ready. It'll install when you close Helldivers 2.");
+                SetStatus($"Update ready. It'll install when you close the game");
             }
             else InstallUpdate();
         }
-        catch (Exception ex)
+        catch
         {
-            SetUpdateInfo($"Version {Updater.Current} · update check failed: {ex.Message}");
-            if (manual) SetStatus("Update check failed: " + ex.Message, Theme.Danger);
+            SetUpdateInfo("Couldn't check for updates just now.");
+            if (manual) SetStatus("Couldn't check for updates just now", Theme.Danger);
         }
         finally { _checking = false; }
     }
@@ -363,13 +369,23 @@ public sealed class MainForm : Form
             _tray.Visible = false;
             Application.Exit();
         }
-        catch (Exception ex)
+        catch
         {
             _downloaded = null;
-            SetUpdateInfo("Couldn't install the update: " + ex.Message);
-            SetStatus("Couldn't install the update: " + ex.Message, Theme.Danger);
+            SetUpdateInfo("The update didn't install. You can download it from GitHub instead.");
+            SetStatus("The update didn't install", Theme.Danger);
             ShowUpdateButton($"⬆ v{_available?.Version} on GitHub");
         }
+    }
+
+    /// <summary>Restarts the app (used to apply a new text size). Comes back to the same place it was.</summary>
+    private void RestartApp()
+    {
+        Storage.SaveSettings(_settings);
+        Program.Restart(startHidden: !Visible);
+        _exiting = true;
+        _tray.Visible = false;
+        Application.Exit();
     }
 
     private void ShowUpdateButton(string text)
@@ -476,10 +492,9 @@ public sealed class MainForm : Form
     private void Called(int slot, string code, Stats.Via via)
     {
         int saved = _stats.Record(code, via);
-        string how = via switch { Stats.Via.Voice => "Voice", Stats.Via.OneTouch => "One-touch", _ => $"Ctrl+{slot}" };
         BeginInvoke(() =>
         {
-            SetStatus($"{how}: {_settings.Slots[slot - 1]}  (+{saved} keys saved)");
+            SetStatus($"Called in {MenuReader.StripDesignation(_settings.Slots[slot - 1] ?? "")}");
             UpdateStats();
         });
     }
@@ -517,7 +532,7 @@ public sealed class MainForm : Form
         if (_settings.VoiceMode == 0)
         {
             _voice.Stop();
-            UpdateVoiceInfo("Voice is off");
+            UpdateVoiceInfo("Voice is off.");
             return;
         }
         if (_voice.Running) { UpdateVoiceInfo(null); return; }
@@ -530,11 +545,11 @@ public sealed class MainForm : Form
     {
         if (message == null)
         {
-            var names = Voice.PhrasesFor(_settings.Slots).Keys.Where(k => !k.StartsWith("slot ")).OrderBy(k => k);
+            var names = _settings.Slots.Where(n => !string.IsNullOrEmpty(n)).Select(n => Voice.Spoken(n!)).Distinct();
             string mode = _settings.VoiceMode == 1
-                ? (string.IsNullOrEmpty(_settings.PttBinding) ? "push-to-talk (no key set — bind one above)" : "push-to-talk on " + Bindings.Display(_settings.PttBinding))
-                : "always listening";
-            message = $"Listening ({mode}) with the {_voice.RecognizerName} recogniser.\nSay “call in” then: {string.Join(", ", names)}, or slot one–nine.";
+                ? (string.IsNullOrEmpty(_settings.PttBinding) ? "Pick a talk key above to start." : $"Hold {Bindings.Display(_settings.PttBinding)} and speak.")
+                : "Listening all the time.";
+            message = $"{mode} You can say “call in” and then: {string.Join(", ", names)}, or a slot number.";
         }
         _voiceInfo = message;
         _settingsForm?.SetVoiceInfo(message);
@@ -545,7 +560,7 @@ public sealed class MainForm : Form
         int pct = (int)(confidence * 100);
         if (pct < _settings.VoiceConfidence)
         {
-            BeginInvoke(() => SetStatus($"Heard “{phrase}”? ({pct}% — ignored)"));
+            BeginInvoke(() => SetStatus($"Didn't quite catch that (sounded like “{phrase}”)"));
             return;
         }
         // Push-to-talk: accept speech while the key is held or just after release (recognition finishes after you stop talking).
@@ -566,12 +581,12 @@ public sealed class MainForm : Form
     {
         if (!_settings.ShowOverlay)
         {
-            SetStatus("The overlay is turned off in Settings › General", Theme.Danger);
+            SetStatus("The overlay is turned off in Settings", Theme.Danger);
             return;
         }
         _overlayHidden = !_overlayHidden;
         UpdateOverlay();
-        SetStatus(_overlayHidden ? "Overlay hidden until your next scan (Ctrl+V to show)" : "Overlay shown (Ctrl+V to hide)");
+        SetStatus(_overlayHidden ? "Overlay hidden. It'll come back after your next scan" : "Overlay's back");
     }
 
     /// <summary>Show the panel only while Helldivers 2 is the active window (checked every 400 ms).</summary>
@@ -630,12 +645,12 @@ public sealed class MainForm : Form
                 await Task.Delay(200);
             }
             if (_settings.SoundCues) Sounds.Failure();
-            BeginInvoke(() => SetStatus("Couldn't read the stratagem menu — hold Ctrl until it's open, then press C", Theme.Danger));
+            BeginInvoke(() => SetStatus("Couldn't read the menu. Hold Ctrl until it opens, then press C", Theme.Danger));
         }
         catch (Exception ex)
         {
             if (_settings.SoundCues) Sounds.Failure();
-            BeginInvoke(() => SetStatus("Menu read failed: " + ex.Message, Theme.Danger));
+            BeginInvoke(() => SetStatus("Something went wrong reading the menu: " + ex.Message, Theme.Danger));
         }
     }
 
@@ -681,7 +696,7 @@ public sealed class MainForm : Form
             RefreshSlotCodes();
             Storage.SaveSettings(_settings);
         }
-        SetStatus($"Detected {rows.Count} stratagems at {DateTime.Now:HH:mm:ss}" + (slotsChanged ? " (updated)" : ""));
+        SetStatus($"Got your loadout: {rows.Count} stratagems");
 
         // A fresh scan always brings back an overlay hidden with Ctrl+V.
         _overlayHidden = false;
@@ -703,11 +718,27 @@ public sealed class MainForm : Form
         }
     }
 
-    /// <summary>Latest event, shown on the right of the status bar (red for problems).</summary>
+    /// <summary>Latest event, shown on the right of the status bar (red for problems) and read out by screen readers.</summary>
     private void SetStatus(string text, Color? color = null)
     {
-        _status.Text = text.TrimEnd('.').ToUpperInvariant();
+        text = text.TrimEnd('.');
+        _status.Text = text;
+        _status.AccessibleName = text;
         _status.ForeColor = color == Theme.Danger ? Theme.Danger : Theme.Muted;
+        Announce(text);
+    }
+
+    /// <summary>Tells screen readers (Narrator, NVDA, JAWS) about a change without moving focus.</summary>
+    private void Announce(string text)
+    {
+        try
+        {
+            if (_status.IsHandleCreated)
+                _status.AccessibilityObject.RaiseAutomationNotification(
+                    System.Windows.Forms.Automation.AutomationNotificationKind.Other,
+                    System.Windows.Forms.Automation.AutomationNotificationProcessing.MostRecent, text);
+        }
+        catch { /* older Windows without UIA notifications */ }
     }
 
     private void CheckGame()
@@ -732,9 +763,14 @@ public sealed class MainForm : Form
         var (color, text) = !_hook.Enabled ? (Theme.Danger, "DISABLED")
                           : !_gameRunning ? (Theme.Amber, "WAITING FOR HELLDIVERS 2")
                           : (Theme.Ok, "READY");
+        bool changed = _stateLabel.Text.Length > 0 && _stateLabel.Text != text;
         _statusDot.ForeColor = color;
         _stateLabel.Text = text;
-        if (_tray != null) _tray.Text = "Stratagem Helper — " + (text.Length > 40 ? text[..40] : text);
+        string spoken = !_hook.Enabled ? "Hotkeys are off" : !_gameRunning ? "Waiting for Helldivers 2" : "Ready";
+        _stateLabel.AccessibleName = "Status: " + spoken;
+        _statusDot.AccessibleName = spoken;
+        if (changed) Announce(spoken);
+        if (_tray != null) _tray.Text = "Stratagem Helper — " + spoken;
     }
 
     // ---------------- Window ----------------
@@ -763,9 +799,9 @@ public sealed class MainForm : Form
                 Startup.SetEnabled(true);
                 SetStatus("Will start with Windows");
             }
-            catch (Exception ex)
+            catch
             {
-                SetStatus("Couldn't turn on start with Windows: " + ex.Message, Theme.Danger);
+                SetStatus("Couldn't turn on start with Windows", Theme.Danger);
             }
         });
     }
