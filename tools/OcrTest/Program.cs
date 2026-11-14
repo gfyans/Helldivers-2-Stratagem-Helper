@@ -26,6 +26,23 @@ if (args.Length == 4 && args[0] == "--form")
     f.StartPosition = FormStartPosition.CenterScreen;
     if (Environment.GetEnvironmentVariable("DUMP_LAYOUT") == "1")
         f.Shown += (_, _) => { void Dump(Control c, int d) { Console.WriteLine($"{new string(' ', d * 2)}{c.GetType().Name} {c.Bounds} min={c.MinimumSize} max={c.MaximumSize} \"{(c.Text.Length > 30 ? c.Text[..30] : c.Text)}\""); foreach (Control k in c.Controls) Dump(k, d + 1); } Console.WriteLine($"Form client {f.ClientSize} size {f.Size} min={f.MinimumSize}"); Dump(f.Controls[0], 0); };
+    var shot = Environment.GetEnvironmentVariable("SHOT_OUT");
+    if (shot != null)
+        f.Shown += async (_, _) =>
+        {
+            // Optional: SHOT_TAB=<n> opens settings tab n (Ctrl+Tab presses) before capturing.
+            f.Activate();
+            await Task.Delay(800);
+            for (int i = 0; i < int.Parse(Environment.GetEnvironmentVariable("SHOT_TAB") ?? "0"); i++) { SendKeys.Send("^{TAB}"); await Task.Delay(300); }
+            await Task.Delay(700);
+            Dwm.GetWindowAttribute(f.Handle, 9, out var r, 16);
+            var b = Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
+            using var bmp = new Bitmap(b.Width, b.Height);
+            using (var g = Graphics.FromImage(bmp)) g.CopyFromScreen(b.Location, Point.Empty, b.Size);
+            bmp.Save(shot);
+            Console.WriteLine($"Saved {shot}");
+            f.Close();
+        };
     var t = new System.Windows.Forms.Timer { Interval = 8000 }; t.Tick += (_, _) => f.Close(); t.Start();
     Application.Run(f);
     return 0;
@@ -38,6 +55,7 @@ if (args.Length == 2 && args[0] == "--shot-main")
     f.Shown += async (_, _) =>
     {
         await Task.Delay(1500);
+        if (Environment.GetEnvironmentVariable("SHOT_HOVER") == "1") { f.Activate(); Cursor.Position = new Point(f.Right - 80, f.Top + 70); await Task.Delay(500); } // check hover colours
         if (Environment.GetEnvironmentVariable("SHOT_TAB") == "1") { f.Activate(); SendKeys.Send("{TAB}"); await Task.Delay(500); } // check keyboard focus rings
         Dwm.GetWindowAttribute(f.Handle, 9, out var r, 16);
         var b = Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);

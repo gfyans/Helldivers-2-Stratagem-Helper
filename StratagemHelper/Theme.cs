@@ -199,6 +199,44 @@ internal static class Theme
         c.Focused && c.IsHandleCreated &&
         (SendMessage(c.Handle, WM_QUERYUISTATE, IntPtr.Zero, IntPtr.Zero).ToInt64() & UISF_HIDEFOCUS) == 0;
 
+    private static readonly Dictionary<(string, float, FontStyle), int> CapsNudge = new();
+
+    /// <summary>
+    /// Draws capitals centred on the letters themselves. Windows centres the whole line, including the empty
+    /// space kept for tails like "g", which makes all-caps text sit a few pixels high.
+    /// </summary>
+    public static void DrawCaps(Graphics g, string text, Font font, Rectangle r, Color color, TextFormatFlags flags = TextFormatFlags.HorizontalCenter)
+    {
+        r.Offset(0, CapsOffset(font));
+        TextRenderer.DrawText(g, text, font, r, color, flags | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+    }
+
+    /// <summary>How far to move a line of capitals down so the letters, not the line, are centred. Measured once per font.</summary>
+    private static int CapsOffset(Font font)
+    {
+        var key = (font.Name, font.Size, font.Style);
+        lock (CapsNudge)
+        {
+            if (CapsNudge.TryGetValue(key, out int n)) return n;
+            int h = TextRenderer.MeasureText("H", font).Height;
+            using var bmp = new Bitmap(h * 2, h);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.Clear(Color.Black);
+                TextRenderer.DrawText(g, "H", font, new Rectangle(0, 0, h * 2, h), Color.White, Color.Black,
+                    TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+            }
+            int top = -1, bottom = -1;
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < h * 2; x++)
+                    if (bmp.GetPixel(x, y).G > 128) { if (top < 0) top = y; bottom = y; break; }
+            // Line centre minus ink centre (in half pixels, rounded).
+            n = top < 0 ? 0 : (int)Math.Round((h - (top + bottom + 1)) / 2.0, MidpointRounding.AwayFromZero);
+            CapsNudge[key] = n;
+            return n;
+        }
+    }
+
     /// <summary>A clearly visible keyboard-focus ring (2 px, high contrast).</summary>
     public static void DrawFocus(Graphics g, Rectangle r, Color? color = null)
     {
@@ -600,7 +638,7 @@ internal sealed class HdBindBox : Button
         bool hover = ClientRectangle.Contains(PointToClient(MousePosition));
         using (var p = new Pen(_capturing || hover ? Theme.Yellow : Theme.ControlBorder)) g.DrawRectangle(p, r);
         var color = _capturing ? Theme.OnAccent : string.IsNullOrEmpty(_binding) ? Theme.Muted : Theme.Text;
-        TextRenderer.DrawText(g, Text, Font, r, color, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        Theme.DrawCaps(g, Text, Font, r, color);
         if (Theme.ShowsFocus(this) && !_capturing) Theme.DrawFocus(g, ClientRectangle);
     }
 
@@ -737,8 +775,7 @@ internal sealed class HdTabs : Panel
             bool sel = _index == _owner._selected;
             int bar = Math.Max(3, Height / 10);
             using (var line = new Pen(Theme.Border)) g.DrawLine(line, 0, Height - 1, Width, Height - 1);
-            TextRenderer.DrawText(g, Text, Font, ClientRectangle, sel ? Theme.Yellow : Theme.Muted,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            Theme.DrawCaps(g, Text, Font, ClientRectangle, sel ? Theme.Yellow : Theme.Muted);
             if (sel)
             {
                 using var y = new SolidBrush(Theme.Yellow);
@@ -778,13 +815,23 @@ internal sealed class HdButton : Button
     protected override bool ShowFocusCues => false; // we draw our own, clearer one
     protected override void OnChangeUICues(UICuesEventArgs e) { base.OnChangeUICues(e); Invalidate(); }
 
+    private bool _hover, _pressed;
+
+    // Drawn by hand (rather than base.OnPaint) so the capitals can be centred properly; see Theme.DrawCaps.
     protected override void OnPaint(PaintEventArgs e)
     {
-        base.OnPaint(e);
+        var g = e.Graphics;
+        var back = _pressed ? FlatAppearance.MouseDownBackColor : _hover ? FlatAppearance.MouseOverBackColor : BackColor;
+        g.Clear(back);
+        using (var border = new Pen(FlatAppearance.BorderColor)) g.DrawRectangle(border, 0, 0, Width - 1, Height - 1);
+        var r = new Rectangle(Padding.Left, Padding.Top, Width - Padding.Horizontal, Height - Padding.Vertical);
+        Theme.DrawCaps(g, Text, Font, r, ForeColor);
         // On the solid yellow primary button a light ring would vanish, so use the dark text colour there.
-        if (Theme.ShowsFocus(this)) Theme.DrawFocus(e.Graphics, ClientRectangle, _primary ? Theme.OnAccent : null);
+        if (Theme.ShowsFocus(this)) Theme.DrawFocus(g, ClientRectangle, _primary ? Theme.OnAccent : null);
     }
 
-    protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); if (!_primary) ForeColor = Theme.OnAccent; }
-    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); if (!_primary) ForeColor = Theme.Yellow; }
+    protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); _hover = true; if (!_primary) ForeColor = Theme.OnAccent; Invalidate(); }
+    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); _hover = false; _pressed = false; if (!_primary) ForeColor = Theme.Yellow; Invalidate(); }
+    protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); if (e.Button == MouseButtons.Left) { _pressed = true; Invalidate(); } }
+    protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); _pressed = false; Invalidate(); }
 }
