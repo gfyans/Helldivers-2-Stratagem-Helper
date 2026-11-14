@@ -21,6 +21,9 @@ public sealed class Settings
     public bool OnlyWhenGameFocused { get; set; } = true;
     public bool AutoDetect { get; set; } = true;
 
+    /// <summary>Play the scan success / failure sounds.</summary>
+    public bool SoundCues { get; set; } = true;
+
     /// <summary>The one-time "start with Windows?" welcome has been answered.</summary>
     public bool FirstRunDone { get; set; }
 

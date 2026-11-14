@@ -15,6 +15,7 @@ internal sealed class SettingsForm : Form
     private readonly HdToggle _focusBox = new("Only when Helldivers 2 is focused");
     private readonly HdToggle _overlayBox = new("Show loadout overlay in game (top-left)");
     private readonly HdToggle _startupBox = new("Start with Windows (in the system tray)");
+    private readonly HdToggle _soundBox = new("Sound cues when a scan succeeds or fails");
     private readonly HdRadio _wasdRadio = new("WASD");
     private readonly HdRadio _arrowRadio = new("Arrow keys");
     private readonly NumericUpDown _holdNum = new() { Minimum = 10, Maximum = 200, Width = 64 };
@@ -71,6 +72,7 @@ internal sealed class SettingsForm : Form
         _autoBox.Checked = settings.AutoDetect;
         _focusBox.Checked = settings.OnlyWhenGameFocused;
         _overlayBox.Checked = settings.ShowOverlay;
+        _soundBox.Checked = settings.SoundCues;
         _startupBox.Checked = Startup.IsEnabled();
         _wasdRadio.Checked = !settings.UseArrowKeys;
         _arrowRadio.Checked = settings.UseArrowKeys;
@@ -161,6 +163,18 @@ internal sealed class SettingsForm : Form
             page.Controls.Add(t);
         }
         page.Controls.Add(Hint("The overlay lists your scanned slots while the game is focused. Ctrl+V hides/shows it in game. Needs borderless or windowed mode."));
+
+        var soundRow = Row(8);
+        _soundBox.Margin = new Padding(2, 1, 12, 0);
+        soundRow.Controls.Add(_soundBox);
+        var testOk = new HdButton("▶ Success") { Margin = new Padding(0, 0, 6, 0) };
+        var testFail = new HdButton("▶ Fail") { Margin = Padding.Empty };
+        testOk.Click += (_, _) => Sounds.Success();
+        testFail.Click += (_, _) => Sounds.Failure();
+        soundRow.Controls.Add(testOk);
+        soundRow.Controls.Add(testFail);
+        page.Controls.Add(soundRow);
+        _soundBox.CheckedChanged += (_, _) => Change(() => _settings.SoundCues = _soundBox.Checked);
 
         page.Controls.Add(new SectionHeader("Input") { Width = Inner, Margin = new Padding(0, 16, 0, 4) });
         var dirRow = Row();
