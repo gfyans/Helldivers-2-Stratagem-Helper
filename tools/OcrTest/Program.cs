@@ -4,6 +4,12 @@
 using System.Drawing;
 using StratagemHelper;
 
+// Same Windows Forms setup as the app (ApplicationConfiguration.Initialize there), so windows and screenshots
+// match it. Without SetCompatibleTextRenderingDefault(false), labels draw with GDI+, which spaces text wider.
+Application.EnableVisualStyles();
+Application.SetCompatibleTextRenderingDefault(false);
+Application.SetHighDpiMode(HighDpiMode.SystemAware);
+
 if (args.Contains("--voice")) return FeatureTests.Voice() + FeatureTests.Stats();
 if (args.Contains("--keys")) return FeatureTests.Keys();
 if (args.Contains("--overlay")) { FeatureTests.Overlay(6); return 0; }
