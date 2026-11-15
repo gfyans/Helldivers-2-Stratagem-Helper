@@ -34,7 +34,7 @@ The Orbital 380mm Barrage, for example, is Ctrl plus seven arrows. With this it'
 - **Three ways to call in:**
   - **Ctrl + 1–9**: hold Ctrl like normal and press a number.
   - **One key**: no Ctrl at all. It uses the numpad by default, or you can set mouse side buttons or a foot pedal.
-  - **Voice**: say "call in" and then the stratagem, like "call in resupply". The "call in" part stops it going off when you're just chatting.
+  - **Voice**: say "call in" and then the stratagem, like "call in resupply". You only need to say enough to pick it out from the rest of your loadout, so "call in eagle" does the job if you've only got one eagle. The "call in" part stops it going off when you're just chatting.
 - **Shows your loadout in the corner of the game**, so you know which number is which. You can make it more or less see-through, and Ctrl + V hides it.
 - **Counts the keypresses it saves you**, today, this week and all time.
 - **Plays a sound** when a scan works or doesn't, so you don't need to look away.
@@ -45,20 +45,6 @@ The Orbital 380mm Barrage, for example, is Ctrl plus seven arrows. With this it'
   <img src="docs/images/loadout-overlay.png" alt="The game's stratagem menu with the Stratagem Helper loadout list beside it" width="520"><br>
   <em>Your loadout (right) next to the game's stratagem menu</em>
 </p>
-
----
-
-## The app is accessible too
-
-An accessibility tool should be accessible itself, so:
-
-- **You can use it with just a keyboard.** Tab moves around, the arrow keys pick options, Ctrl + Tab switches between settings tabs, Enter sets a key and Esc closes.
-- **It works with screen readers** like Narrator, NVDA and JAWS. Everything is labelled, arrow codes are read out as words ("up, down, right"), and changes like "Got your loadout" are announced.
-- **You can make the text bigger** (125%, 150% or 200%) in Settings. It also follows Windows display scaling.
-- **It follows Windows High Contrast** and uses your contrast colours.
-- **Sound and colour are never the only signal.** Every sound has a message on screen, and every status is spelled out in words.
-
-If something doesn't work for you, please [open an issue](https://github.com/gfyans/Helldivers-2-Stratagem-Helper/issues) and I'll take a look.
 
 ---
 
@@ -103,13 +89,19 @@ You'll hear a rising blip if it worked, or a low buzz if it couldn't read the me
 | --- | --- |
 | Ctrl + number | Hold Ctrl and press 1–9 |
 | One key | Press the slot's key (Numpad 1–9 by default, with Num Lock on) |
-| Voice | Say "call in" and the stratagem, or "call in slot three" |
+| Voice | Say "call in" and the stratagem (or just part of its name), or "call in slot three" |
 
 The stratagem ends up in your hand, ready to throw. The numbers stay put even if the game adds a row to its menu mid-match. The overlay always shows what each number does.
 
 ### Voice tips
 
-- Say the name as it shows in the app, without the model number: "call in **mortar sentry**", "call in **S O S beacon**". Shorter versions work too, like "call in eagle cluster".
+- **You don't have to say the whole name.** Say just enough to tell it apart from everything else in your loadout. With one orbital, "call in **orbital**" is enough. With two, add the bit that's different: "call in **orbital three eighty**", or just "call in **three eighty**". Eagles, sentries and everything else work the same way.
+- **It never guesses.** If what you said could mean two of your stratagems, it does nothing, so you won't get the wrong one by accident. Say a bit more and try again.
+- **Say numbers the way you'd normally say them.** "Three eighty", "three hundred eighty" and "three hundred and eighty" all work. The same goes for units ("millimetre", "mill", or skip it) and letters ("H E" or "high explosive").
+- **Leave out the model number.** It's "call in **mortar sentry**", not "A M twelve mortar sentry".
+- **Not sure what to say?** The Voice tab in Settings lists the shortest phrase that works for each of your slots. It changes with your loadout, so have a look after you scan.
+- **New stratagems work too.** As soon as a scan picks up a new one, you can call it in by voice the same way.
+- **"Call in slot three" always works**, whatever's in the slot.
 - Push-to-talk is the most reliable. Your talk key still works in the game, so it can be your voice chat key.
 - If it goes off by accident, turn up **Strictness**. If it keeps missing you, turn it down.
 
