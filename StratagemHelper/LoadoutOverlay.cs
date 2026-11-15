@@ -96,6 +96,7 @@ internal sealed class LoadoutOverlay : Form
             _badgeFont?.Dispose();
             _nameFont = new Font(Theme.Heading.FontFamily, row * 0.58f, FontStyle.Regular, GraphicsUnit.Pixel);
             _badgeFont = new Font(Theme.Badge.FontFamily, _badge * 0.78f, FontStyle.Bold, GraphicsUnit.Pixel);
+            _badge = Theme.FitCaps(_badgeFont, _badge, 0, "1", Theme.IsDark(Theme.Bg)); // number drawn in Bg on yellow // a pixel bigger if that's what centres the number exactly
             contentChanged = true;
         }
 
@@ -119,7 +120,8 @@ internal sealed class LoadoutOverlay : Form
         _screen = screen;
         _menuOpen = menuOpen;
         Relayout(contentChanged: true);
-        var bmp = new Bitmap(Width, Height);
+        // Opaque, so text gets ClearType as in the game (Windows can't use it on a transparent bitmap).
+        var bmp = new Bitmap(Width, Height, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
         using (var g = Graphics.FromImage(bmp)) Draw(g, Width, Height);
         return (bmp, Bounds);
     }
@@ -139,11 +141,10 @@ internal sealed class LoadoutOverlay : Form
             int y = _pad + i * _row;
             var badge = new Rectangle(x, y + (_row - _badge) / 2, _badge, _badge);
             g.FillRectangle(accent, badge);
-            TextRenderer.DrawText(g, slot.ToString(), _badgeFont, badge, Theme.Bg,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-            var text = new Rectangle(badge.Right + _pad, y, width - badge.Right - _pad, _row);
-            TextRenderer.DrawText(g, name, _nameFont, text, Theme.Text,
-                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPadding);
+            // Both centred on the letters themselves, the name level with the number beside it.
+            Theme.DrawCaps(g, slot.ToString(), _badgeFont, badge, Theme.Bg, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding);
+            var text = new Rectangle(badge.Right + _pad, badge.Top, width - badge.Right - _pad, badge.Height);
+            Theme.DrawCaps(g, name, _nameFont, text, Theme.Text, TextFormatFlags.Left | TextFormatFlags.NoPadding);
         }
     }
 

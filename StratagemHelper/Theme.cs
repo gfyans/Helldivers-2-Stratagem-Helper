@@ -231,15 +231,16 @@ internal static class Theme
         (SendMessage(c.Handle, WM_QUERYUISTATE, IntPtr.Zero, IntPtr.Zero).ToInt64() & UISF_HIDEFOCUS) == 0;
 
     private const TextFormatFlags LineFlags = TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
-    private static readonly Dictionary<(string, float, FontStyle, string), (int Top, int Height)> InkCache = new();
+    private static readonly Dictionary<(string, float, FontStyle, string, bool), (int Top, int Height)> InkCache = new();
 
     /// <summary>
     /// The rows that actually get ink when <paramref name="sample"/> is drawn with its line top at y = 0.
-    /// For "H" that's the capital height. Measured once per font.
+    /// For "H" that's the capital height. Measured once per font. <paramref name="darkText"/>: dark text on a
+    /// light background, which Windows can draw a softened edge row of more heavily than light on dark.
     /// </summary>
-    public static (int Top, int Height) Ink(Font font, string sample = "H")
+    public static (int Top, int Height) Ink(Font font, string sample = "H", bool darkText = false)
     {
-        var key = (font.Name, font.Size, font.Style, sample);
+        var key = (font.Name, font.Size, font.Style, sample, darkText);
         lock (InkCache)
         {
             if (InkCache.TryGetValue(key, out var ink)) return ink;
@@ -248,34 +249,46 @@ internal static class Theme
             using var bmp = new Bitmap(w, h);
             using (var g = Graphics.FromImage(bmp))
             {
-                g.Clear(Color.Black);
-                TextRenderer.DrawText(g, sample, font, new Point(0, 0), Color.White, Color.Black, LineFlags);
+                g.Clear(darkText ? Color.White : Color.Black);
+                // No background colour, exactly as DrawCaps draws: Windows rounds soft edge rows differently with one.
+                TextRenderer.DrawText(g, sample, font, new Point(0, 0), darkText ? Color.Black : Color.White, LineFlags);
             }
             int top = -1, bottom = -1;
             for (int y = 0; y < h; y++)
                 for (int x = 0; x < w; x++)
+                {
+                    int strength = darkText ? 255 - bmp.GetPixel(x, y).G : bmp.GetPixel(x, y).G;
                     // 30%: a softened top row of the letters is plainly visible at 40%, barely at 20%.
-                    if (bmp.GetPixel(x, y).G > 76) { if (top < 0) top = y; bottom = y; break; }
+                    if (strength > 76) { if (top < 0) top = y; bottom = y; break; }
+                }
             ink = top < 0 ? (0, h) : (top, bottom - top + 1);
             InkCache[key] = ink;
             return ink;
         }
     }
 
-    /// <summary>What to line up on: the capitals, or for text with no letters (like "—") its own marks.</summary>
-    private static string InkSample(string text) => text.Any(char.IsLetterOrDigit) ? "H" : text;
+    /// <summary>
+    /// What to line up on: the capitals; for a number or text with no letters (like "—"), its own marks.
+    /// (Digits can be a pixel taller than capitals, and rounded ones overshoot a little.)
+    /// </summary>
+    private static string InkSample(string text) => text.Any(char.IsLetter) ? "H" : text;
 
     /// <summary>
     /// Top row of the capitals when they're centred in <paramref name="r"/>. Exact when r's height and the
     /// capital height are both odd or both even (see <see cref="FitCaps"/>); otherwise half a pixel high.
     /// </summary>
-    public static int CapsTop(Font font, Rectangle r, string text = "H") => r.Top + (r.Height - Ink(font, InkSample(text)).Height) / 2;
+    public static int CapsTop(Font font, Rectangle r, string text = "H", bool darkText = false) =>
+        r.Top + (r.Height - Ink(font, InkSample(text), darkText).Height) / 2;
 
     /// <summary>
     /// <paramref name="height"/>, or one more, so that the space left for text (height minus
     /// <paramref name="chrome"/>) centres the capitals exactly instead of leaving them half a pixel off.
     /// </summary>
-    public static int FitCaps(Font font, int height, int chrome) => height + ((height - chrome - Ink(font).Height) & 1);
+    public static int FitCaps(Font font, int height, int chrome, string text = "H", bool darkText = false) =>
+        height + ((height - chrome - Ink(font, InkSample(text), darkText).Height) & 1);
+
+    /// <summary>Whether text in this colour counts as dark text on a light background for <see cref="Ink"/>.</summary>
+    public static bool IsDark(Color c) => c.GetBrightness() < 0.5f;
 
     /// <summary>
     /// Draws text centred on the capitals themselves. Windows centres the whole line, including the empty
@@ -283,7 +296,8 @@ internal static class Theme
     /// </summary>
     public static void DrawCaps(Graphics g, string text, Font font, Rectangle r, Color color, TextFormatFlags flags = TextFormatFlags.HorizontalCenter)
     {
-        int y = CapsTop(font, r, text) - Ink(font, InkSample(text)).Top;
+        bool dark = IsDark(color);
+        int y = CapsTop(font, r, text, dark) - Ink(font, InkSample(text), dark).Top;
         flags &= ~(TextFormatFlags.VerticalCenter | TextFormatFlags.Bottom);
         var line = new Rectangle(r.Left, y, r.Width, Math.Max(r.Height, font.Height * 2));
         TextRenderer.DrawText(g, text, font, line, color, flags | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
@@ -492,8 +506,22 @@ internal sealed class KeyBadge : DrawnLabel
         using var fill = new SolidBrush(Active ? Theme.Yellow : Theme.PanelAlt);
         g.FillRectangle(fill, r);
         if (!Active) { using var p = new Pen(Theme.ControlBorder); g.DrawRectangle(p, r); }
-        TextRenderer.DrawText(g, _number, Font, r, Active ? Theme.OnAccent : Theme.Muted,
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        // Inside the 1 px border drawn when inactive, so both states line up.
+        Theme.DrawCaps(g, _number, Font, new Rectangle(1, 1, Width - 2, Height - 2), Active ? Theme.OnAccent : Theme.Muted);
+    }
+
+    // Keep it square and a size that centres the number exactly (it may grow by a pixel).
+    protected override void SetBoundsCore(int x, int y, int width, int height, BoundsSpecified specified)
+    {
+        if ((specified & BoundsSpecified.Height) != 0 && _number != null) height = Theme.FitCaps(Font, height, 2, _number, Theme.IsDark(Theme.OnAccent)); // sized for the active look; _number is null while Label's constructor runs
+        if ((specified & BoundsSpecified.Width) != 0) width = height;
+        base.SetBoundsCore(x, y, width, height, specified);
+    }
+
+    protected override void OnFontChanged(EventArgs e)
+    {
+        base.OnFontChanged(e);
+        Size = new Size(Height, Height);
     }
 }
 
@@ -999,10 +1027,11 @@ internal sealed class HdButton : Button
         if (_icon == ButtonIcon.None) Theme.DrawCaps(g, Text, Font, r, ForeColor);
         else
         {
-            int cap = Theme.Ink(Font).Height, iconW = Theme.IconWidth(_icon, cap), gap = IconGap(cap);
+            bool dark = Theme.IsDark(ForeColor); // dark on yellow when primary or hovered
+            int cap = Theme.Ink(Font, "H", dark).Height, iconW = Theme.IconWidth(_icon, cap), gap = IconGap(cap);
             int textW = TextRenderer.MeasureText(g, Text, Font, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix).Width;
             int x = r.Left + (r.Width - (iconW + gap + textW)) / 2;
-            Theme.DrawIcon(g, _icon, x, Theme.CapsTop(Font, r), cap, ForeColor);
+            Theme.DrawIcon(g, _icon, x, Theme.CapsTop(Font, r, "H", dark), cap, ForeColor);
             Theme.DrawCaps(g, Text, Font, new Rectangle(x + iconW + gap, r.Top, textW + 4, r.Height), ForeColor,
                 TextFormatFlags.Left | TextFormatFlags.NoPadding);
         }

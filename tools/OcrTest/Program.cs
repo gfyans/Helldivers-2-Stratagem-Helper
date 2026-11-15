@@ -96,6 +96,10 @@ if (args.Length == 4 && args[0] == "--render-overlay")
     using var ov = new LoadoutOverlay();
     ov.SetRows(new string?[] { "Reinforce", "SOS Beacon", "Resupply", "Eagle Cluster Bomb", "EAT-17 Expendable Anti-Tank", "Nova", "A/AC-8 Autocannon Sentry", null, null });
     var (img, bounds) = ov.Render(new Rectangle(0, 0, cap.Width, cap.Height), menuOpen: true);
+    if (Environment.GetEnvironmentVariable("OVERLAY_RAW") is string raw) img.Save(raw); // the panel alone, as drawn ({img.Size} at {bounds})
+    Console.WriteLine($"Panel {img.Width}x{img.Height} at {bounds}");
+    if (typeof(LoadoutOverlay).GetField("_badgeFont", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(ov) is Font bf)
+        Console.WriteLine($"Badge font {bf.Size}{bf.Unit}: ink of \"1\" = {Theme.Ink(bf, "1")}, of \"H\" = {Theme.Ink(bf)}");
     using var outBmp = new Bitmap(size[0], size[1]);
     using (var g = Graphics.FromImage(outBmp))
     {
