@@ -5,8 +5,9 @@ using System.Text.RegularExpressions;
 namespace StratagemHelper;
 
 /// <summary>
-/// Offline voice commands using the Windows desktop speech recogniser. Listens only for a small grammar
-/// (the current loadout's names + "slot one".."slot nine"), which keeps it fast and accurate.
+/// Offline voice commands using the Windows desktop speech recogniser. Listens only for a fixed grammar built
+/// from the current loadout (every unambiguous way of saying each name + "slot one".."slot nine"), which keeps
+/// it fast and accurate.
 /// </summary>
 internal sealed class Voice : IDisposable
 {
@@ -125,71 +126,159 @@ internal sealed class Voice : IDisposable
         return NumberWords(n / 1000) + " thousand" + (n % 1000 > 0 ? " " + NumberWords(n % 1000) : "");
     }
 
-    /// <summary>"Eagle 500KG Bomb" -> "eagle five hundred kilogram bomb"; "SOS Beacon" -> "S O S beacon".</summary>
-    public static string Spoken(string name)
+    /// <summary>
+    /// One word (or number, or unit) of a name, with every way of saying it. Alts[0] is the most natural form.
+    /// A unit ("millimetre") is only ever said straight after its number.
+    /// </summary>
+    private sealed record Token(string[] Alts, bool IsUnit);
+
+    /// <summary>Acronyms with a known spoken form. Other short words get both spelled-out and as-a-word forms.</summary>
+    private static readonly Dictionary<string, string[]> Acronyms = new(StringComparer.OrdinalIgnoreCase)
     {
-        var words = new List<string>();
+        ["HE"] = new[] { "H E", "high explosive" },
+        ["HMG"] = new[] { "H M G", "heavy machine gun" },
+        ["SEAF"] = new[] { "seaf", "S E A F" },
+    };
+
+    /// <summary>"380" -> "three eighty", "three hundred eighty", "three hundred and eighty".</summary>
+    private static string[] NumberAlts(int n)
+    {
+        var alts = new List<string>();
+        bool split = n > 100 && n < 1000 && n % 100 != 0;
+        if (split) alts.Add(Ones[n / 100] + " " + (n % 100 < 10 ? "oh " + Ones[n % 100] : NumberWords(n % 100)));
+        alts.Add(NumberWords(n));
+        if (split) alts.Add(Ones[n / 100] + " hundred and " + NumberWords(n % 100));
+        return alts.Distinct().ToArray();
+    }
+
+    private static string[] WordAlts(string w)
+    {
+        if (Acronyms.TryGetValue(w, out var known)) return known;
+        if (w.Length is >= 2 and <= 3 && w.All(char.IsLetter))
+        {
+            // Learned names arrive title-cased ("He", "Sos"), so case alone can't tell an acronym from a word: offer both.
+            var letters = string.Join(' ', w.ToUpperInvariant().ToCharArray());
+            var word = w.ToLowerInvariant();
+            return w.All(char.IsUpper) ? new[] { letters, word } : new[] { word, letters };
+        }
+        return new[] { w.ToLowerInvariant() };
+    }
+
+    private static List<Token> Tokens(string name)
+    {
+        var tokens = new List<Token>();
         foreach (var raw in MenuReader.StripDesignation(name).Replace("\"", "").Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
             var m = Regex.Match(raw, @"^(\d+)(kg|mm)?$", RegexOptions.IgnoreCase);
             if (m.Success && int.TryParse(m.Groups[1].Value, out int n))
             {
-                words.Add(NumberWords(n));
-                var unit = m.Groups[2].Value.ToLowerInvariant();
-                if (unit == "kg") words.Add("kilogram");
-                if (unit == "mm") words.Add("millimetre");
+                tokens.Add(new Token(NumberAlts(n), false));
+                switch (m.Groups[2].Value.ToLowerInvariant())
+                {
+                    case "kg": tokens.Add(new Token(new[] { "kilogram", "kilo", "K G" }, true)); break;
+                    case "mm": tokens.Add(new Token(new[] { "millimetre", "millimeter", "mill", "M M" }, true)); break;
+                }
                 continue;
             }
-            var token = Regex.Replace(raw, @"[^A-Za-z0-9']", "");
-            if (token.Length == 0) continue;
-            if (token.Length <= 3 && token.All(char.IsUpper))
-                words.Add(string.Join(' ', token.ToCharArray()));      // acronyms: say the letters
-            else
-                words.Add(token.ToLowerInvariant());
+            // "Anti-Tank" is said as two words.
+            var parts = Regex.Split(raw, "[-/]").Select(p => Regex.Replace(p, @"[^A-Za-z0-9']", "")).Where(p => p.Length > 0).ToList();
+            if (parts.Count == 1) tokens.Add(new Token(WordAlts(parts[0]), false));
+            else if (parts.Count > 1) tokens.Add(new Token(new[] { string.Join(' ', parts.Select(p => p.ToLowerInvariant())) }, false));
         }
-        return string.Join(' ', words);
+        return tokens;
+    }
+
+    /// <summary>"Eagle 500KG Bomb" -> "eagle five hundred kilogram bomb"; "SOS Beacon" -> "S O S beacon".</summary>
+    public static string Spoken(string name) => string.Join(' ', Tokens(name).Select(t => t.Alts[0]));
+
+    /// <summary>A way of saying (part of) a name. Lower Rank = a more natural thing to suggest.</summary>
+    private readonly record struct Candidate(string Phrase, bool Full, (int tokens, int alts, int first) Rank);
+
+    /// <summary>
+    /// Every way of saying a name or part of it: any in-order selection of its words ("orbital barrage",
+    /// "three eighty"), with each word in each of its spoken forms.
+    /// </summary>
+    private static IEnumerable<Candidate> Candidates(string name)
+    {
+        var t = Tokens(name);
+        if (t.Count == 0) yield break;
+
+        IEnumerable<int[]> Selections()
+        {
+            if (t.Count <= 7)
+            {
+                for (int mask = 1; mask < 1 << t.Count; mask++)
+                    yield return Enumerable.Range(0, t.Count).Where(i => (mask & (1 << i)) != 0).ToArray();
+            }
+            else
+            {
+                // A long (probably misread) name: only runs of consecutive words, to keep the grammar small.
+                for (int a = 0; a < t.Count; a++)
+                    for (int b = a; b < t.Count; b++)
+                        yield return Enumerable.Range(a, b - a + 1).ToArray();
+            }
+        }
+
+        foreach (var sel in Selections())
+        {
+            if (sel.All(i => t[i].IsUnit)) continue;
+            if (sel.Any(i => t[i].IsUnit && !sel.Contains(i - 1))) continue;   // "millimetre" only after its number
+            bool full = sel.Length == t.Count;
+
+            var words = new string[sel.Length];
+            IEnumerable<Candidate> Expand(int k, int altSum)
+            {
+                if (k == sel.Length)
+                {
+                    yield return new Candidate(string.Join(' ', words), full, (sel.Length, altSum, sel[0]));
+                    yield break;
+                }
+                var alts = t[sel[k]].Alts;
+                for (int a = 0; a < alts.Length; a++)
+                {
+                    words[k] = alts[a];
+                    foreach (var c in Expand(k + 1, altSum + a)) yield return c;
+                }
+            }
+            foreach (var c in Expand(0, 0)) yield return c;
+        }
     }
 
     /// <summary>
-    /// A shorter way to say a long name: "eagle five hundred kilogram bomb" -> "eagle five hundred",
-    /// "eagle cluster bomb" -> "eagle cluster". Null when there's no sensible short form.
+    /// Works out which phrases pick out exactly one slot. A full name beats part of another name, so "autocannon"
+    /// means the Autocannon even when an Autocannon Sentry is also in the loadout. Any other phrase that fits
+    /// more than one slot is dropped.
     /// </summary>
-    public static string? ShortForm(string spoken)
+    private static (Dictionary<string, int> map, string?[] hints) Resolve(IReadOnlyList<string?> slotNames)
     {
-        var parts = spoken.Split(' ');
-        int unit = Array.FindIndex(parts, p => p is "kilogram" or "millimetre");
-        if (unit > 1) return string.Join(' ', parts.Take(unit));
-        if (parts.Length < 3) return null;
-        bool IsWord(string p) => p.Length > 1 && !Ones.Contains(p) && !Tens.Contains(p) && p != "hundred";
-        return IsWord(parts[0]) && IsWord(parts[1]) ? parts[0] + " " + parts[1] : null;
-    }
+        var best = new Dictionary<string, (int prio, int slot, bool clash)>(StringComparer.OrdinalIgnoreCase);
+        var perSlot = new List<Candidate>[9];
 
-    /// <summary>Phrase -> slot for the loadout: full names, two-word short forms, and "slot one".."slot nine".</summary>
-    public static Dictionary<string, int> PhrasesFor(IReadOnlyList<string?> slotNames)
-    {
-        var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var clashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        void Add(string phrase, int slot)
+        void Add(string phrase, int prio, int slot)
         {
-            if (string.IsNullOrWhiteSpace(phrase) || clashes.Contains(phrase)) return;
-            if (map.TryGetValue(phrase, out int existing) && existing != slot)
-            {
-                map.Remove(phrase);
-                clashes.Add(phrase);   // ambiguous: drop it
-                return;
-            }
-            map[phrase] = slot;
+            if (!best.TryGetValue(phrase, out var cur) || prio < cur.prio) best[phrase] = (prio, slot, false);
+            else if (prio == cur.prio && slot != cur.slot) best[phrase] = cur with { clash = true };
         }
 
         for (int i = 0; i < slotNames.Count && i < 9; i++)
         {
-            Add("slot " + Ones[i + 1], i + 1);
-            if (slotNames[i] is not string name) continue;
-            var full = Spoken(name);
-            Add(full, i + 1);
-            if (ShortForm(full) is string shortForm) Add(shortForm, i + 1);
+            Add("slot " + Ones[i + 1], 0, i + 1);
+            perSlot[i] = slotNames[i] is string name ? Candidates(name).ToList() : new();
+            foreach (var c in perSlot[i]) Add(c.Phrase, c.Full ? 0 : 1, i + 1);
         }
-        return map;
+
+        var map = best.Where(kv => !kv.Value.clash).ToDictionary(kv => kv.Key, kv => kv.Value.slot, StringComparer.OrdinalIgnoreCase);
+
+        var hints = new string?[9];
+        for (int i = 0; i < 9 && perSlot[i] != null; i++)
+            hints[i] = perSlot[i].Where(c => map.TryGetValue(c.Phrase, out int s) && s == i + 1)
+                                 .OrderBy(c => c.Rank).Select(c => c.Phrase).FirstOrDefault();
+        return (map, hints);
     }
+
+    /// <summary>Phrase -> slot for the loadout: every unambiguous way of saying each name, and "slot one".."slot nine".</summary>
+    public static Dictionary<string, int> PhrasesFor(IReadOnlyList<string?> slotNames) => Resolve(slotNames).map;
+
+    /// <summary>For each slot, the shortest natural phrase that calls it in with this loadout (null for an empty slot).</summary>
+    public static string?[] HintsFor(IReadOnlyList<string?> slotNames) => Resolve(slotNames).hints;
 }

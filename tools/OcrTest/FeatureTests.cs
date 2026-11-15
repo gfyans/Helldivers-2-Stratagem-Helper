@@ -35,8 +35,49 @@ static class FeatureTests
                 Check(got == slot, $"\"{say}\" -> slot {got} (expected {slot})");
             }
             // Without the "call in" keyword nothing may trigger.
-            foreach (var say in new[] { "resupply", "mortar sentry", "slot two", "call in orbital laser", "in resupply" })
+            foreach (var say in new[] { "resupply", "mortar sentry", "slot two", "call in orbital laser", "in resupply", "call in sentry" })
                 Check(StratagemHelper.Voice.SlotOf(voice.Emulate(say)) == null, $"\"{say}\" -> ignored");
+        }
+
+        Console.WriteLine("== Partial names: one orbital, one eagle");
+        var single = new string?[] { "Reinforce", "Orbital 380mm HE Barrage", "Eagle 500KG Bomb", "AC-8 Autocannon", null, null, null, null, null };
+        var sp = StratagemHelper.Voice.PhrasesFor(single);
+        foreach (var (say, slot) in new[] { ("orbital", 2), ("eagle", 3), ("three eighty", 2), ("barrage", 2),
+                                            ("orbital three hundred and eighty millimetre H E barrage", 2),
+                                            ("orbital three eighty mill high explosive barrage", 2), ("five hundred kilo", 3) })
+            Check(sp.TryGetValue(say, out var got) && got == slot, $"\"{say}\" -> slot {slot}");
+        Check(!sp.ContainsKey("millimetre"), "a unit on its own isn't a phrase");
+        Console.WriteLine("  hints: " + string.Join(" | ", StratagemHelper.Voice.HintsFor(single).Where(h => h != null)));
+
+        Console.WriteLine("== Partial names: two orbitals, two eagles");
+        var dbl = new string?[] { "Orbital 380mm HE Barrage", "Orbital 120mm HE Barrage", "Orbital Laser", "Eagle 500KG Bomb", "Eagle Cluster Bomb", null, null, null, null };
+        var dp = StratagemHelper.Voice.PhrasesFor(dbl);
+        foreach (var say in new[] { "orbital", "eagle", "H E barrage", "bomb", "orbital barrage" })
+            Check(!dp.ContainsKey(say), $"\"{say}\" is ambiguous -> dropped");
+        foreach (var (say, slot) in new[] { ("orbital three eighty", 1), ("three eighty", 1), ("one twenty", 2), ("orbital one hundred and twenty", 2),
+                                            ("laser", 3), ("orbital laser", 3), ("five hundred", 4), ("cluster", 5), ("eagle cluster bomb", 5) })
+            Check(dp.TryGetValue(say, out var got) && got == slot, $"\"{say}\" -> slot {slot}");
+        var dh = StratagemHelper.Voice.HintsFor(dbl);
+        Console.WriteLine("  hints: " + string.Join(" | ", dh.Where(h => h != null)));
+        Check(dh[0] == "three eighty" && dh[1] == "one twenty" && dh[2] == "laser", "hints pick the short, natural phrase");
+
+        Console.WriteLine("== Learned names (title-cased, as read off the screen)");
+        var learned = new string?[] { "Orbital 380Mm He Barrage", "Orbital Gatling Barrage", "Sos Beacon", "Lift-850 Jump Pack", "Eat-17 Expendable Anti-Tank", null, null, null, null };
+        var lp = StratagemHelper.Voice.PhrasesFor(learned);
+        foreach (var (say, slot) in new[] { ("three eighty", 1), ("H E barrage", 1), ("orbital three hundred eighty millimetre high explosive barrage", 1),
+                                            ("gatling", 2), ("S O S", 3), ("jump pack", 4), ("anti tank", 5), ("expendable anti tank", 5) })
+            Check(lp.TryGetValue(say, out var got) && got == slot, $"\"{say}\" -> slot {slot}");
+
+        Console.WriteLine("== Grammar size, worst case");
+        var big = StratagemHelper.Voice.PhrasesFor(new string?[] { "Orbital 380mm HE Barrage", "Orbital 120mm HE Barrage", "Eagle 110mm Rocket Pods",
+            "Eagle 500KG Bomb", "RL-77 Airburst Rocket Launcher", "SH-20 Ballistic Shield Backpack", "MD-6 Anti-Personnel Minefield", "A/MG-43 Machine Gun Sentry", "E/MG-101 HMG Emplacement" });
+        Console.WriteLine($"  {big.Count} phrases");
+        using (var v2 = new StratagemHelper.Voice())
+        {
+            var e2 = v2.Start(big, listen: false);
+            Check(e2 == null, "recogniser loads the big grammar" + (e2 != null ? ": " + e2 : ""));
+            if (e2 == null)
+                Check(StratagemHelper.Voice.SlotOf(v2.Emulate("call in orbital three eighty")) == 1, "\"call in orbital three eighty\" -> slot 1");
         }
         return fail;
     }

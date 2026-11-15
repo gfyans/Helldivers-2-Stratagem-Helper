@@ -550,11 +550,11 @@ public sealed class MainForm : Form
     {
         if (message == null)
         {
-            var names = _settings.Slots.Where(n => !string.IsNullOrEmpty(n)).Select(n => Voice.Spoken(n!)).Distinct();
+            var hints = Voice.HintsFor(_settings.Slots).Where(h => h != null).Select(h => $"“{h}”");
             string mode = _settings.VoiceMode == 1
                 ? (string.IsNullOrEmpty(_settings.PttBinding) ? "Pick a talk key above to start." : $"Hold {Bindings.Display(_settings.PttBinding)} and speak.")
                 : "Listening all the time.";
-            message = $"{mode} You can say “call in” and then: {string.Join(", ", names)}, or a slot number.";
+            message = $"{mode} Say “call in” and then: {string.Join(", ", hints)}. Fuller names and slot numbers work too.";
         }
         _voiceInfo = message;
         _settingsForm?.SetVoiceInfo(message);
