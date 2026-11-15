@@ -52,7 +52,7 @@
   section:nth-of-type(even) { background: rgba(24, 26, 28, .88); }
 
   /* Space background: an animated 3D scene drawn by the script at the bottom. The gradient shows if WebGL is unavailable. */
-  .space { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none;
+  .space { position: fixed; top: 0; left: 0; width: 100%; height: 100vh; height: 100lvh; z-index: -1; overflow: hidden; pointer-events: none;
            background: radial-gradient(ellipse 120% 80% at 50% -10%, #131925 0%, #07080b 65%); }
   #space3d { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   h2 { font-size: clamp(2rem, 5vw, 2.8rem); margin: 0 0 24px; display: flex; align-items: center; gap: 14px; }
@@ -208,6 +208,7 @@
   import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 
   const canvas = document.getElementById("space3d");
+  const spaceBox = canvas.parentElement;
   const reduce = matchMedia("(prefers-reduced-motion: reduce)");
   const phone = matchMedia("(max-width: 780px)");
 
@@ -821,7 +822,7 @@
   }
 
   function layout() {
-    vw = innerWidth; vh = innerHeight;
+    vw = innerWidth; vh = spaceBox.clientHeight || innerHeight; // full screen height, even while a phone's address bar shows
     const maxScroll = Math.max(0, document.documentElement.scrollHeight - vh);
     const pr = Math.min(devicePixelRatio || 1, phone.matches ? 1 : 1.5);
     renderer.setPixelRatio(pr);
@@ -829,7 +830,10 @@
     camera.aspect = vw / vh;
     camera.updateProjectionMatrix();
     starMat.uniforms.uPR.value = pr;
-    k = 0.3 * perPx(DP); // the planet drifts at 30% of the scroll speed; the rest follows from depth
+    // The planet drifts at up to 30% of the scroll speed, but never more than 45% of a screen in total,
+    // so it stays in view on long pages. Everything else drifts less, by depth.
+    const drift = Math.min(0.3 * maxScroll, 0.45 * vh);
+    k = maxScroll > 0 ? (drift / maxScroll) * perPx(DP) : 0;
 
     const W = Math.min(vw, 1040), Rpx = W / 2 / 1.09;
     planet.position.copy(at(vw * 1.24 - W / 2, vh * 0.62 + W / 2, DP));
@@ -932,7 +936,14 @@
   }
 
   let timer;
-  addEventListener("resize", () => { clearTimeout(timer); timer = setTimeout(() => { layout(); if (!running) render(); }, 150); });
+  addEventListener("resize", () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (innerWidth === vw && spaceBox.clientHeight === vh) return; // just the address bar sliding: nothing to redo
+      layout();
+      if (!running) render();
+    }, 150);
+  });
   addEventListener("load", () => { layout(); if (!running) render(); }); // page height can change once fonts and images arrive
   reduce.addEventListener("change", () => { running = false; start(); });
   phone.addEventListener("change", () => { layout(); if (!running) render(); });
