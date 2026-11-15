@@ -36,7 +36,13 @@ internal static class WindowShot
             PrintWindow(window, dc, 2); // PW_RENDERFULLCONTENT
             g.ReleaseHdc(dc);
         }
-        return full.Clone(new System.Drawing.Rectangle(v.Left - w.Left, v.Top - w.Top, v.Right - v.Left, v.Bottom - v.Top), full.PixelFormat);
+        var shot = full.Clone(new System.Drawing.Rectangle(v.Left - w.Left, v.Top - w.Top, v.Right - v.Left, v.Bottom - v.Top), full.PixelFormat);
+        // Windows 11 draws the 1 px window border itself, so PrintWindow leaves it black. Paint the colour the app
+        // asks for (Theme.ApplyDarkTitleBar); in High Contrast, the system's own frame colour.
+        using (var g = System.Drawing.Graphics.FromImage(shot))
+        using (var pen = new System.Drawing.Pen(StratagemHelper.Theme.HighContrast ? System.Drawing.SystemColors.WindowFrame : StratagemHelper.Theme.YellowDim))
+            g.DrawRectangle(pen, 0, 0, shot.Width - 1, shot.Height - 1);
+        return shot;
     }
 }
 
