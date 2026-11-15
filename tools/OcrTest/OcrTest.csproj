@@ -24,6 +24,8 @@
     <Compile Include="..\..\StratagemHelper\Updater.cs" Link="Updater.cs" />
     <Compile Include="..\..\StratagemHelper\SettingsForm.cs" Link="SettingsForm.cs" />
     <Compile Include="..\..\StratagemHelper\MainForm.cs" Link="MainForm.cs" />
+    <!-- The heading font, under the same names the app's Theme looks for. -->
+    <EmbeddedResource Include="..\..\StratagemHelper\Fonts\*.ttf" LogicalName="StratagemHelper.Fonts.%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.Speech" Version="11.0.0" />

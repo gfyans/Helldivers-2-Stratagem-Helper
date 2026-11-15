@@ -22,7 +22,19 @@ if (args.Length == 4 && args[0] == "--form")
 {
     // Shows a window with a given text scale and High Contrast on/off for screenshots: --form first|settings <scale> <0|1>
     Theme.Init(float.Parse(args[2], System.Globalization.CultureInfo.InvariantCulture), args[3] == "1");
-    Form f = args[1] == "first" ? new FirstRunDialog(Theme.MakeIcon()) : new SettingsForm(new Settings(), true, 64, Theme.MakeIcon());
+    Form f;
+    if (args[1] == "first") f = new FirstRunDialog(Theme.MakeIcon());
+    else
+    {
+        // Same loadout as the main window image (settings.json next to this exe), with voice always listening.
+        var demo = Storage.LoadSettings();
+        demo.VoiceMode = 2;
+        demo.ShowOverlay = demo.SoundCues = true; // as a new install has them
+        var sf = new SettingsForm(demo, true, 64, Theme.MakeIcon());
+        var hints = Voice.HintsFor(demo.Slots).Where(h => h != null).Select(h => $"“{h}”");
+        sf.SetVoiceInfo($"Listening all the time. Say “call in” and then: {string.Join(", ", hints)}. Fuller names and slot numbers work too.");
+        f = sf;
+    }
     f.StartPosition = FormStartPosition.CenterScreen;
     if (Environment.GetEnvironmentVariable("DUMP_LAYOUT") == "1")
         f.Shown += (_, _) => { void Dump(Control c, int d) { Console.WriteLine($"{new string(' ', d * 2)}{c.GetType().Name} {c.Bounds} min={c.MinimumSize} max={c.MaximumSize} \"{(c.Text.Length > 30 ? c.Text[..30] : c.Text)}\""); foreach (Control k in c.Controls) Dump(k, d + 1); } Console.WriteLine($"Form client {f.ClientSize} size {f.Size} min={f.MinimumSize}"); Dump(f.Controls[0], 0); };
@@ -30,15 +42,16 @@ if (args.Length == 4 && args[0] == "--form")
     if (shot != null)
         f.Shown += async (_, _) =>
         {
-            // Optional: SHOT_TAB=<n> opens settings tab n (Ctrl+Tab presses) before capturing.
+            // Optional: SHOT_TAB=<n> opens settings tab n before capturing.
             f.Activate();
             await Task.Delay(800);
-            for (int i = 0; i < int.Parse(Environment.GetEnvironmentVariable("SHOT_TAB") ?? "0"); i++) { SendKeys.Send("^{TAB}"); await Task.Delay(300); }
+            // Select the tab directly: keystrokes would go to whatever window is in front.
+            int tab = int.Parse(Environment.GetEnvironmentVariable("SHOT_TAB") ?? "0");
+            if (tab > 0 && typeof(SettingsForm).GetField("_tabs", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(f) is HdTabs tabs)
+                tabs.Selected = tab;
+            FocusCues.Hide(f.Handle); // no focus rings, as if only the mouse had been used
             await Task.Delay(700);
-            Dwm.GetWindowAttribute(f.Handle, 9, out var r, 16);
-            var b = Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
-            using var bmp = new Bitmap(b.Width, b.Height);
-            using (var g = Graphics.FromImage(bmp)) g.CopyFromScreen(b.Location, Point.Empty, b.Size);
+            using var bmp = WindowShot.Capture(f.Handle);
             bmp.Save(shot);
             Console.WriteLine($"Saved {shot}");
             f.Close();
@@ -57,12 +70,9 @@ if (args.Length == 2 && args[0] == "--shot-main")
         await Task.Delay(1500);
         if (Environment.GetEnvironmentVariable("SHOT_HOVER") == "1") { f.Activate(); Cursor.Position = new Point(f.Right - 80, f.Top + 70); await Task.Delay(500); } // check hover colours
         if (Environment.GetEnvironmentVariable("SHOT_TAB") == "1") { f.Activate(); SendKeys.Send("{TAB}"); await Task.Delay(500); } // check keyboard focus rings
-        Dwm.GetWindowAttribute(f.Handle, 9, out var r, 16);
-        var b = Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
-        using var bmp = new Bitmap(b.Width, b.Height);
-        using (var g = Graphics.FromImage(bmp)) g.CopyFromScreen(b.Location, Point.Empty, b.Size);
+        using var bmp = WindowShot.Capture(f.Handle);
         bmp.Save(args[1]);
-        Console.WriteLine($"Saved {args[1]} ({b.Width}x{b.Height})");
+        Console.WriteLine($"Saved {args[1]} ({bmp.Width}x{bmp.Height})");
         var tray = typeof(MainForm).GetField("_tray", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(f) as NotifyIcon;
         if (tray != null) tray.Visible = false;
         Environment.Exit(0);
