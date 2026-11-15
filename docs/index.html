@@ -51,16 +51,10 @@
   section { padding: 72px 0; border-top: 1px solid var(--border); }
   section:nth-of-type(even) { background: rgba(24, 26, 28, .88); }
 
-  /* Space background: fixed layers that drift at different speeds as you scroll (see script at the bottom). */
+  /* Space background: an animated 3D scene drawn by the script at the bottom. The gradient shows if WebGL is unavailable. */
   .space { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none;
            background: radial-gradient(ellipse 120% 80% at 50% -10%, #131925 0%, #07080b 65%); }
-  .space .layer { position: absolute; left: 0; top: 0; width: 100%; will-change: transform; }
-  /* --pw is the planet's own size; the box is about twice that to fit the rings, centred on the same spot. */
-  .space .planet { --pw: min(100vw, 1040px); position: absolute; right: calc(-24vw - var(--pw) * .518); top: calc(62vh - var(--pw) * .518);
-      width: calc(var(--pw) * 2.037); aspect-ratio: 1; filter: brightness(.85); }
-  .space .moon { position: absolute; left: 5vw; top: 100vh; width: 130px; aspect-ratio: 1; }
-  .space .planet canvas, .space .moon canvas { display: block; width: 100%; height: 100%; opacity: 0; transition: opacity 1.2s; }
-  .space canvas.ready { opacity: 1; }
+  #space3d { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   h2 { font-size: clamp(2rem, 5vw, 2.8rem); margin: 0 0 24px; display: flex; align-items: center; gap: 14px; }
   h2::before { content: ""; width: 8px; height: .9em; background: var(--yellow); }
   h3 { color: var(--yellow); font-size: 1.35rem; margin: 0 0 6px; }
@@ -94,18 +88,13 @@
     .codes { white-space: normal; }
     /* Text runs full width on phones, so dim the background behind it. */
     .space::after { content: ""; position: absolute; inset: 0; background: rgba(7, 8, 11, .5); }
-    .space .planet { filter: brightness(.6); }
   }
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; } }
 </style>
 </head>
 <body>
 <div class="space" aria-hidden="true">
-  <canvas class="layer" data-speed="0.05" data-nebula></canvas>
-  <canvas class="layer" data-speed="0.08" data-stars="far"></canvas>
-  <canvas class="layer" data-speed="0.11" data-stars="near"></canvas>
-  <div class="layer" data-speed="0.18"><div class="moon"><canvas width="260" height="260"></canvas></div></div>
-  <div class="layer" data-speed="0.3"><div class="planet"><canvas width="1400" height="1400"></canvas></div></div>
+  <canvas id="space3d"></canvas>
 </div>
 <div class="hazard" aria-hidden="true"></div>
 <div class="topbar">
@@ -214,316 +203,740 @@
     <span><a href="https://github.com/gfyans/Helldivers-2-Stratagem-Helper/issues">Report a problem</a></span>
   </div>
 </footer>
-<script>
-  // Space background: stars, a nebula, a planet and a moon, all drawn here (no image files).
-  // Each layer moves up at its own fraction of the scroll distance to give a parallax effect.
-  (() => {
-    const layers = [...document.querySelectorAll(".space .layer")];
-    const reduce = matchMedia("(prefers-reduced-motion: reduce)");
+<script type="module">
+  // Animated 3D space background. Everything is generated on the graphics card; no image files.
+  import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 
-    // Seeded random numbers, so everything looks the same on every visit.
-    const rng = seed => () => {
-      seed = (seed + 0x6D2B79F5) | 0;
-      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
+  const canvas = document.getElementById("space3d");
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)");
+  const phone = matchMedia("(max-width: 780px)");
 
-    // 3D value noise layered into "fractal" noise, for terrain, clouds and gas.
-    function makeNoise(seed) {
-      const r = rng(seed), perm = new Uint16Array(512), val = new Float32Array(256);
-      const p = [...Array(256).keys()];
-      for (let i = 255; i > 0; i--) { const j = (r() * (i + 1)) | 0; [p[i], p[j]] = [p[j], p[i]]; }
-      for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
-      for (let i = 0; i < 256; i++) val[i] = r();
-      const h = (a, b, c) => val[perm[perm[perm[a] + b] + c]];
-      const noise = (x, y, z) => {
-        const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
-        const X = xi & 255, Y = yi & 255, Z = zi & 255;
-        let u = x - xi, v = y - yi, w = z - zi;
-        u = u * u * (3 - 2 * u); v = v * v * (3 - 2 * v); w = w * w * (3 - 2 * w);
-        const a = h(X, Y, Z) + (h(X + 1, Y, Z) - h(X, Y, Z)) * u;
-        const b = h(X, Y + 1, Z) + (h(X + 1, Y + 1, Z) - h(X, Y + 1, Z)) * u;
-        const c = h(X, Y, Z + 1) + (h(X + 1, Y, Z + 1) - h(X, Y, Z + 1)) * u;
-        const d = h(X, Y + 1, Z + 1) + (h(X + 1, Y + 1, Z + 1) - h(X, Y + 1, Z + 1)) * u;
-        const e = a + (b - a) * v, f = c + (d - c) * v;
-        return e + (f - e) * w;
-      };
-      return (x, y, z, octaves = 5) => {
-        let amp = 0.5, freq = 1, sum = 0, norm = 0;
-        for (let i = 0; i < octaves; i++) { sum += amp * noise(x * freq, y * freq, z * freq); norm += amp; amp *= 0.5; freq *= 2.03; }
-        return sum / norm;
-      };
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: !phone.matches, powerPreference: "high-performance" });
+  } catch (e) {
+    canvas.remove(); // no WebGL: the plain dark gradient behind it stays
+    throw e;
+  }
+  renderer.setClearColor(0x07080b, 1);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(40, 1, 1, 4000);
+  const TAN = Math.tan(THREE.MathUtils.degToRad(20));
+  const SUN = new THREE.Vector3(-0.78, 0.42, 0.42).normalize(); // light from the upper left
+
+  // Depths decide how fast things drift as you scroll: nearer = faster.
+  const DP = 150, DM = 250, DN = 700; // planet, moon, nebula
+
+  // ---------- Shared GLSL ----------
+  // 3D simplex noise by Ian McEwan and Stefan Gustavson (MIT licence, github.com/ashima/webgl-noise).
+  const NOISE = /* glsl */ `
+    vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+    vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+    vec4 permute(vec4 x) { return mod289(((x * 34.0) + 1.0) * x); }
+    vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+    float snoise(vec3 v) {
+      const vec2 C = vec2(1.0 / 6.0, 1.0 / 3.0);
+      const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+      vec3 i = floor(v + dot(v, C.yyy));
+      vec3 x0 = v - i + dot(i, C.xxx);
+      vec3 g = step(x0.yzx, x0.xyz);
+      vec3 l = 1.0 - g;
+      vec3 i1 = min(g.xyz, l.zxy);
+      vec3 i2 = max(g.xyz, l.zxy);
+      vec3 x1 = x0 - i1 + C.xxx;
+      vec3 x2 = x0 - i2 + C.yyy;
+      vec3 x3 = x0 - D.yyy;
+      i = mod289(i);
+      vec4 p = permute(permute(permute(
+                i.z + vec4(0.0, i1.z, i2.z, 1.0))
+              + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+              + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+      float n_ = 0.142857142857;
+      vec3 ns = n_ * D.wyz - D.xzx;
+      vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+      vec4 x_ = floor(j * ns.z);
+      vec4 y_ = floor(j - 7.0 * x_);
+      vec4 x = x_ * ns.x + ns.yyyy;
+      vec4 y = y_ * ns.x + ns.yyyy;
+      vec4 h = 1.0 - abs(x) - abs(y);
+      vec4 b0 = vec4(x.xy, y.xy);
+      vec4 b1 = vec4(x.zw, y.zw);
+      vec4 s0 = floor(b0) * 2.0 + 1.0;
+      vec4 s1 = floor(b1) * 2.0 + 1.0;
+      vec4 sh = -step(h, vec4(0.0));
+      vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
+      vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
+      vec3 p0 = vec3(a0.xy, h.x);
+      vec3 p1 = vec3(a0.zw, h.y);
+      vec3 p2 = vec3(a1.xy, h.z);
+      vec3 p3 = vec3(a1.zw, h.w);
+      vec4 norm = taylorInvSqrt(vec4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3)));
+      p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+      vec4 m = max(0.6 - vec4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0.0);
+      m = m * m;
+      return 42.0 * dot(m * m, vec4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
     }
+    float fbm(vec3 p, int oct) {
+      float a = 0.5, s = 0.0, n = 0.0;
+      for (int i = 0; i < 8; i++) { if (i >= oct) break; s += a * snoise(p); n += a; a *= 0.5; p *= 2.03; }
+      return s / n;
+    }
+    float h01(vec3 p, int oct) { return 0.5 + 0.5 * fbm(p, oct); }
+  `;
 
-    const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
-    const smooth = (a, b, v) => { const t = clamp((v - a) / (b - a)); return t * t * (3 - 2 * t); };
-    const ramp = (stops, t) => {
-      for (let i = 1; i < stops.length; i++) {
-        if (t <= stops[i][0]) {
-          const [t0, c0] = stops[i - 1], [t1, c1] = stops[i], k = (t - t0) / (t1 - t0);
-          return [c0[0] + (c1[0] - c0[0]) * k, c0[1] + (c1[1] - c0[1]) * k, c0[2] + (c1[2] - c0[2]) * k];
-        }
+  // Ring structure, in planet radii. Shared by the rings and the planet (for the rings' shadow).
+  const RING = /* glsl */ `
+    const float RIN = 1.32, ROUT = 2.2;
+    float ringDensity(float r) {
+      if (r < RIN || r > ROUT) return 0.0;
+      float t = (r - RIN) / (ROUT - RIN);
+      float bands = h01(vec3(r * 7.0, 0.5, 0.5), 4), fine = h01(vec3(r * 60.0, 1.3, 0.2), 2);
+      float v = smoothstep(0.0, 0.05, t) * (1.0 - smoothstep(0.93, 1.0, t));
+      v *= 0.3 + 0.7 * smoothstep(0.3, 0.68, bands);
+      v *= 0.75 + 0.5 * (fine - 0.5);
+      v *= 1.0 - 0.92 * exp(-pow((t - 0.66) / 0.022, 2.0)); // the gap between the main rings
+      if (t < 0.22) v *= 0.35;                             // faint inner ring
+      return clamp(v, 0.0, 1.0) * 0.9;
+    }
+    vec3 ringColour(float r) {
+      float k = h01(vec3(r * 4.5, 2.2, 0.9), 3);
+      return vec3(168.0 + 50.0 * k, 146.0 + 44.0 * k, 118.0 + 36.0 * k) / 255.0;
+    }
+  `;
+
+  const SPHERE_VERT = /* glsl */ `
+    varying vec3 vObj; varying vec3 vN; varying vec3 vW;
+    void main() {
+      vObj = position;
+      vN = normalize(mat3(modelMatrix) * normal);
+      vec4 w = modelMatrix * vec4(position, 1.0);
+      vW = w.xyz;
+      gl_Position = projectionMatrix * viewMatrix * w;
+    }
+  `;
+
+  // ---------- Planet ----------
+  const planet = new THREE.Group();          // tilted; holds the planet, its glow and rings
+  planet.rotation.order = "ZXY";
+  planet.rotation.set(0.3, 0, 0.24);
+  scene.add(planet);
+
+  const shared = {
+    uSun: { value: SUN }, uCenter: { value: new THREE.Vector3() }, uRadius: { value: 1 },
+    uRingN: { value: new THREE.Vector3(0, 1, 0) }, uTime: { value: 0 }, uBright: { value: 0.85 },
+  };
+
+  const planetMat = new THREE.ShaderMaterial({
+    uniforms: {
+      ...shared,
+      uSunObj: { value: new THREE.Vector3() }, uCloudRot: { value: 0 },
+      uFlash: { value: 0 }, uFlashDir: { value: new THREE.Vector3(1, 0, 0) },
+      uImpactDir: { value: Array.from({ length: 12 }, () => new THREE.Vector3(0, 1, 0)) },
+      uImpactAge: { value: new Array(12).fill(-1) },
+    },
+    vertexShader: SPHERE_VERT,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uSun, uSunObj, uRingN, uCenter, uFlashDir;
+      uniform float uRadius, uTime, uCloudRot, uBright, uFlash;
+      #define MAX_IMPACTS 12
+      uniform vec3 uImpactDir[MAX_IMPACTS]; uniform float uImpactAge[MAX_IMPACTS];
+      varying vec3 vObj; varying vec3 vN; varying vec3 vW;
+      ${NOISE}
+      ${RING}
+      vec3 land(float t) {
+        float s[9] = float[9](0.0, 0.40, 0.44, 0.46, 0.56, 0.66, 0.76, 0.86, 1.0);
+        vec3 c[9] = vec3[9](vec3(10, 22, 34), vec3(22, 46, 60), vec3(38, 66, 72),     // deep and shallow sea
+                            vec3(112, 74, 44), vec3(152, 94, 52), vec3(186, 132, 82), // coast, rust, sand
+                            vec3(126, 84, 56), vec3(96, 72, 60), vec3(226, 214, 196)); // highlands, peaks
+        for (int i = 1; i < 9; i++) if (t <= s[i]) return mix(c[i - 1], c[i], (t - s[i - 1]) / (s[i] - s[i - 1])) / 255.0;
+        return c[8] / 255.0;
       }
-      return stops[stops.length - 1][1];
-    };
-    const LIGHT = (() => { const v = [-0.78, -0.42, 0.42], m = Math.hypot(...v); return v.map(x => x / m); })();
-    const nextFrame = () => new Promise(res => setTimeout(res, 0));
-
-    // Paints colour (c, a) under what's already at d[i], i.e. "behind" it.
-    function under(d, i, r, g, b, a) {
-      const ta = d[i + 3] / 255, oa = ta + a * (1 - ta);
-      if (oa <= 0) return;
-      d[i] = (d[i] * ta + r * a * (1 - ta)) / oa;
-      d[i + 1] = (d[i + 1] * ta + g * a * (1 - ta)) / oa;
-      d[i + 2] = (d[i + 2] * ta + b * a * (1 - ta)) / oa;
-      d[i + 3] = oa * 255;
-    }
-
-    // Renders a lit sphere (and optional rings) into a canvas, a few rows at a time so the page never freezes.
-    // shade(n, q, lam) returns [r, g, b] for a surface normal n, rotated sample point q and sunlight amount lam.
-    // rings: { inner, outer, incline, roll, density(r) -> 0..1, colour(r) -> [r, g, b] }, radii in planet radii.
-    async function renderSphere(canvas, { haloSize, halo, atmo, atmoStrength, tilt, shade, rings }) {
-      const S = canvas.width, c = S / 2, R = c / Math.max(1 + haloSize, rings ? rings.outer + 0.02 : 0);
-      const g = canvas.getContext("2d"), img = g.createImageData(S, S), d = img.data;
-      const ct = Math.cos(tilt), st = Math.sin(tilt);
-      const lightLen2D = Math.hypot(LIGHT[0], LIGHT[1]);
-      let n, Ln, ringSide;
-      if (rings) {
-        // Ring plane normal: tipped towards the viewer by `incline`, then turned on screen by `roll`.
-        const ci = Math.cos(rings.incline), si = Math.sin(rings.incline);
-        n = [Math.sin(rings.roll) * ci, -Math.cos(rings.roll) * ci, si];
-        Ln = LIGHT[0] * n[0] + LIGHT[1] * n[1] + LIGHT[2] * n[2];
-        ringSide = Ln > 0 ? 1 : 0.4; // seeing the unlit underside of the rings? then they're dimmer
+      // Clouds turn a little faster than the ground.
+      float cloudAt(vec3 p, int oct) {
+        float c = cos(uCloudRot), s = sin(uCloudRot);
+        vec3 q = vec3(c * p.x - s * p.z, p.y, s * p.x + c * p.z);
+        float w = fbm(vec3(q.x * 2.2, q.y * 6.0, q.z * 2.2), 3) * 0.5;
+        return smoothstep(0.52, 0.7, h01(vec3(q.x * 2.4 + w * 0.45, q.y * 5.5 + w * 0.8, q.z * 2.4), oct));
       }
-      const ringAt = (px, py, pz) => {
-        const r = Math.hypot(px, py, pz);
-        return r < rings.inner || r > rings.outer ? 0 : rings.density(r);
-      };
-      for (let y = 0; y < S; y++) {
-        for (let x = 0; x < S; x++) {
-          const nx = (x + 0.5 - c) / R, ny = (y + 0.5 - c) / R, r2 = nx * nx + ny * ny, i = (y * S + x) * 4;
-          const dist = Math.sqrt(r2);
-          const nz = dist < 1 ? Math.sqrt(1 - r2) : 0;
+      void main() {
+        vec3 n = normalize(vN), p = normalize(vObj);
+        float lam = dot(n, uSun);
 
-          if (dist < 1) {
-            // Tilt the texture so features don't line up with the screen.
-            const q = [nx * ct - nz * st, ny, nx * st + nz * ct];
-            const lam = nx * LIGHT[0] + ny * LIGHT[1] + nz * LIGHT[2];
-            let [r, gg, b] = shade([nx, ny, nz], q, lam);
-            // Hazy atmosphere thickening towards the edge on the day side.
-            const rim = Math.pow(1 - nz, 2.2) * smooth(-0.25, 0.5, lam) * atmoStrength;
-            r += atmo[0] * rim; gg += atmo[1] * rim; b += atmo[2] * rim;
-            // Shadow of the rings falling across the planet.
-            if (rings && lam > 0 && Math.abs(Ln) > 1e-3) {
-              const s = -(nx * n[0] + ny * n[1] + nz * n[2]) / Ln;
-              if (s > 0) {
-                const k = 1 - 0.7 * ringAt(nx + s * LIGHT[0], ny + s * LIGHT[1], nz + s * LIGHT[2]);
-                r *= k; gg *= k; b *= k;
-              }
-            }
-            const edge = clamp((1 - dist) * R + 0.5);
-            d[i] = clamp(r, 0, 255); d[i + 1] = clamp(gg, 0, 255); d[i + 2] = clamp(b, 0, 255); d[i + 3] = 255 * edge;
-          } else if (dist < 1 + haloSize) {
-            // Atmosphere glow around the edge, brighter on the sunlit side.
-            const t = 1 - (dist - 1) / haloSize;
-            const facing = (nx * LIGHT[0] + ny * LIGHT[1]) / dist / lightLen2D;
-            const a = Math.pow(t, 2.6) * smooth(-0.5, 1, facing) * halo;
-            d[i] = atmo[0]; d[i + 1] = atmo[1]; d[i + 2] = atmo[2]; d[i + 3] = a * 255;
-          }
+        vec3 q = p * 1.7;
+        float w = fbm(q + vec3(3.1, 0.0, 0.0), 4) * 0.5;
+        float hgt = clamp((h01(q + w * 0.55, 6) - 0.5) * 1.7 + 0.5, 0.0, 1.0);
+        vec3 col = land(hgt);
 
-          if (rings) {
-            // Where this pixel's line of sight crosses the ring plane.
-            const pz = -(nx * n[0] + ny * n[1]) / n[2];
-            const dens = ringAt(nx, ny, pz);
-            if (dens > 0.002) {
-              const hidden = dist < 1 && pz < nz; // behind the planet
-              if (!hidden) {
-                // In the planet's shadow? (the sunward ray from this point hits the planet)
-                const along = nx * LIGHT[0] + ny * LIGHT[1] + pz * LIGHT[2];
-                const shadow = along < 0 && nx * nx + ny * ny + pz * pz - along * along < 1 ? 0.06 : 1;
-                const [cr, cg, cb] = rings.colour(Math.hypot(nx, ny, pz));
-                const lit = (0.04 + 0.96 * ringSide) * shadow;
-                const a = dens * (ringSide < 1 ? 0.7 : 0.92);
-                if (pz >= 0 || dist >= 1 + haloSize || dist < 1) {
-                  // In front: paint over what's there.
-                  const ta = a, ba = d[i + 3] / 255, oa = ta + ba * (1 - ta);
-                  d[i] = (cr * lit * ta + d[i] * ba * (1 - ta)) / oa;
-                  d[i + 1] = (cg * lit * ta + d[i + 1] * ba * (1 - ta)) / oa;
-                  d[i + 2] = (cb * lit * ta + d[i + 2] * ba * (1 - ta)) / oa;
-                  d[i + 3] = oa * 255;
-                } else {
-                  under(d, i, cr * lit, cg * lit, cb * lit, a); // behind the thin glow
-                }
-              }
-            }
-          }
-        }
-        if (y % 32 === 31) await nextFrame();
-      }
-      g.putImageData(img, 0, 0);
-      canvas.classList.add("ready");
-    }
+        float cl = cloudAt(p, 5) * 0.68;
+        col *= 1.0 - 0.4 * cloudAt(normalize(p + uSunObj * 0.025), 3) * 0.68 * (1.0 - cl); // cloud shadows
+        col = mix(col, vec3(0.925, 0.91, 0.886), cl);
 
-    function drawPlanet(canvas) {
-      const ringNoise = makeNoise(97);
-      const terrain = makeNoise(11), warp = makeNoise(23), clouds = makeNoise(37), fires = makeNoise(51);
-      const land = [
-        [0.00, [10, 22, 34]], [0.40, [22, 46, 60]], [0.44, [38, 66, 72]],   // deep and shallow sea
-        [0.46, [112, 74, 44]], [0.56, [152, 94, 52]], [0.66, [186, 132, 82]], // coast, rust, sand
-        [0.76, [126, 84, 56]], [0.86, [96, 72, 60]], [1.00, [226, 214, 196]], // highlands, peaks
-      ];
-      return renderSphere(canvas, {
-        haloSize: 0.09, halo: 0.75, atmo: [255, 176, 92], atmoStrength: 0.75, tilt: 0.5,
-        rings: {
-          inner: 1.32, outer: 2.2, incline: 0.3, roll: -0.24,
-          density: r => {
-            const t = (r - 1.32) / (2.2 - 1.32);
-            const bands = ringNoise(r * 7, 0.5, 0.5, 4), fine = ringNoise(r * 60, 1.3, 0.2, 2);
-            let v = smooth(0, 0.05, t) * (1 - smooth(0.93, 1, t));
-            v *= 0.3 + 0.7 * smooth(0.3, 0.68, bands);
-            v *= 0.75 + 0.5 * (fine - 0.5);
-            v *= 1 - 0.92 * Math.exp(-Math.pow((t - 0.66) / 0.022, 2)); // a clear gap between the main rings
-            if (t < 0.22) v *= 0.35;                                     // faint inner ring
-            return clamp(v) * 0.9;
-          },
-          colour: r => {
-            const k = ringNoise(r * 4.5, 2.2, 0.9, 3);
-            return [168 + 50 * k, 146 + 44 * k, 118 + 36 * k];
-          },
-        },
-        shade: ([nx, ny, nz], [x, y, z], lam) => {
-          const s = 1.7;
-          const w = warp(x * s + 3.1, y * s, z * s, 4) - 0.5;
-          let hgt = terrain(x * s + w * 1.6, y * s + w * 1.6, z * s + w * 1.6, 6);
-          hgt = clamp((hgt - 0.5) * 2.5 + 0.5);
-          let col = ramp(land, hgt);
-          // Long cloud bands, stretched around the planet.
-          const cw = warp(x * 2.2, y * 6, z * 2.2, 3) - 0.5;
-          const cl = smooth(0.5, 0.68, clouds(x * 2.4 + cw * 1.2, y * 5.5 + cw * 2, z * 2.4, 5)) * 0.68;
-          col = [col[0] + (236 - col[0]) * cl, col[1] + (232 - col[1]) * cl, col[2] + (226 - col[2]) * cl];
-          // Soft day/night line with a warm tint at dusk.
-          const day = smooth(-0.08, 0.5, lam), lit = 0.025 + 0.975 * Math.max(0, lam) * day;
-          const dusk = smooth(-0.1, 0.05, lam) * (1 - smooth(0.05, 0.3, lam)) * 0.35;
-          let r = col[0] * lit + 255 * dusk * 0.5, g = col[1] * lit + 120 * dusk * 0.5, b = col[2] * lit + 40 * dusk * 0.3;
-          // Fires on the night side, where the land is.
-          if (lam < 0.02 && hgt > 0.46) {
-            const f = fires(x * 9, y * 9, z * 9, 3);
-            const glow = smooth(0.66, 0.8, f) * smooth(0.02, -0.25, lam) * (1 - cl);
-            r += 255 * glow; g += 110 * glow; b += 20 * glow;
-          }
-          return [r, g, b];
-        },
-      });
-    }
+        // Soft day/night line with a warm tint at dusk.
+        float day = smoothstep(-0.08, 0.5, lam), lit = 0.025 + 0.975 * max(lam, 0.0) * day;
+        float dusk = smoothstep(-0.1, 0.05, lam) * (1.0 - smoothstep(0.05, 0.3, lam)) * 0.35;
+        vec3 c = col * lit + vec3(0.5, 0.235, 0.05) * dusk;
 
-    function drawMoon(canvas) {
-      const surface = makeNoise(71), r = rng(83);
-      const craters = Array.from({ length: 46 }, () => {
-        const zz = r() * 2 - 1, a = r() * Math.PI * 2, s = Math.sqrt(1 - zz * zz);
-        return { v: [s * Math.cos(a), s * Math.sin(a), zz], size: 0.04 + Math.pow(r(), 3) * 0.28 };
-      });
-      return renderSphere(canvas, {
-        haloSize: 0.03, halo: 0.25, atmo: [255, 200, 140], atmoStrength: 0.08, tilt: 0.9,
-        shade: (n, [x, y, z], lam) => {
-          let tone = 70 + (surface(x * 2.5, y * 2.5, z * 2.5, 6) - 0.5) * 160;
-          // Darker plains.
-          tone *= 1 - smooth(0.52, 0.62, surface(x * 1.1 + 9, y * 1.1, z * 1.1, 3)) * 0.35;
-          for (const k of craters) {
-            const dot = x * k.v[0] + y * k.v[1] + z * k.v[2];
-            const ang = Math.acos(clamp(dot, -1, 1)) / k.size;
-            if (ang < 1.2) tone *= ang < 0.85 ? 0.78 : 1 + 0.35 * (1 - Math.abs(ang - 1) / 0.2);
-          }
-          const lit = 0.02 + 0.98 * Math.max(0, lam) * smooth(-0.05, 0.3, lam);
-          return [tone * lit * 1.02, tone * lit, tone * lit * 0.96];
-        },
-      });
-    }
-
-    function drawStars() {
-      const maxScroll = Math.max(0, document.documentElement.scrollHeight - innerHeight);
-      document.querySelectorAll(".space canvas[data-stars]").forEach(c => {
-        const near = c.dataset.stars === "near";
-        const w = innerWidth;
-        const h = Math.ceil(innerHeight + maxScroll * (reduce.matches ? 0 : +c.dataset.speed) + 40);
-        c.width = w; c.height = h; c.style.height = h + "px";
-        const g = c.getContext("2d");
-        const r = rng(near ? 7 : 3);
-        const count = Math.round((w * h) / (near ? 9000 : 2000));
-        for (let i = 0; i < count; i++) {
-          const x = r() * w, y = r() * h;
-          const size = near ? 0.6 + r() * 1.4 : 0.3 + r() * 0.8;
-          const alpha = near ? 0.5 + r() * 0.5 : 0.25 + r() * 0.5;
-          g.fillStyle = r() < 0.12 ? `rgba(255,220,140,${alpha})` : `rgba(220,230,255,${alpha})`;
-          g.beginPath(); g.arc(x, y, size, 0, 7); g.fill();
-          if (near && size > 1.7) { // a few bright stars get a glint
-            g.strokeStyle = `rgba(255,240,200,${alpha * 0.5})`; g.lineWidth = 0.6;
-            g.beginPath();
-            g.moveTo(x - size * 4, y); g.lineTo(x + size * 4, y);
-            g.moveTo(x, y - size * 4); g.lineTo(x, y + size * 4);
-            g.stroke();
+        // Shadow of the rings across the planet.
+        if (lam > 0.0) {
+          float dn = dot(uSun, uRingN);
+          if (abs(dn) > 1e-3) {
+            vec3 P = vW - uCenter;
+            float s = -dot(P, uRingN) / dn;
+            if (s > 0.0) c *= 1.0 - 0.7 * ringDensity(length(P + s * uSun) / uRadius);
           }
         }
-      });
-    }
 
-    // Wispy nebula, painted at quarter size and stretched up (the softness suits it).
-    const gas = makeNoise(5), gas2 = makeNoise(17), dust = makeNoise(29);
-    function drawNebula() {
-      const c = document.querySelector(".space canvas[data-nebula]");
-      const maxScroll = Math.max(0, document.documentElement.scrollHeight - innerHeight);
-      const vw = innerWidth, vh = innerHeight;
-      const h = Math.ceil(vh + maxScroll * (reduce.matches ? 0 : +c.dataset.speed) + 40);
-      const SCALE = 4, W = Math.ceil(vw / SCALE), H = Math.ceil(h / SCALE);
-      c.width = W; c.height = H; c.style.height = h + "px";
-      const g = c.getContext("2d"), img = g.createImageData(W, H), d = img.data;
-      // Where the clouds gather: a big one upper right, a smaller one lower left.
-      const blobs = [[0.78 * vw, 0.3 * vh, 0.5 * vw, 1], [0.1 * vw, 0.95 * vh, 0.35 * vw, 0.7]];
-      const unit = 520;
-      for (let y = 0; y < H; y++) {
-        for (let x = 0; x < W; x++) {
-          const px = x * SCALE, py = y * SCALE, X = px / unit, Y = py / unit, i = (y * W + x) * 4;
-          let mask = 0;
-          for (const [bx, by, br, bs] of blobs) {
-            const dx = (px - bx) / br, dy = (py - by) / (br * 0.7);
-            mask = Math.max(mask, Math.exp(-(dx * dx + dy * dy) * 1.6) * bs);
-          }
-          if (mask < 0.01) continue;
-          const q1 = gas(X, Y, 0.3, 4), q2 = gas(X + 5.2, Y + 1.3, 0.7, 4);
-          const v = gas2(X + 3.2 * q1, Y + 3.2 * q2, 1.7, 6);
-          let density = smooth(0.38, 0.78, v) * mask;
-          density *= 1 - smooth(0.55, 0.75, dust(X * 2.6, Y * 2.6, 4.1, 4)) * 0.75; // dark dust lanes
-          const core = smooth(0.62, 0.85, v) * mask;
-          const mix = clamp((q1 - 0.35) * 3);
-          // Teal to magenta, with warm hazard-orange at the bright cores.
-          let r = 40 + (175 - 40) * mix, gg = 120 + (55 - 120) * mix, b = 165 + (150 - 165) * mix;
-          r += (255 - r) * core * 0.8; gg += (175 - gg) * core * 0.8; b += (95 - b) * core * 0.8;
-          d[i] = r; d[i + 1] = gg; d[i + 2] = b; d[i + 3] = clamp(density * 0.62 + core * 0.2) * 255;
+        // Flickering fires on the night side, where the land is.
+        if (lam < 0.02 && hgt > 0.46) {
+          float f = h01(p * 9.0, 3);
+          float flick = 0.7 + 0.3 * snoise(p * 24.0 + vec3(0.0, 0.0, uTime * 0.9));
+          c += vec3(1.0, 0.43, 0.08) * smoothstep(0.66, 0.8, f) * smoothstep(0.02, -0.25, lam) * (1.0 - cl) * flick;
+        }
+
+        // Meteor impacts: a flash, a shockwave ring, then a fireball that smoulders down under a smoke scar.
+        for (int i = 0; i < MAX_IMPACTS; i++) {
+          float age = uImpactAge[i];
+          if (age < 0.0) continue;
+          float d = acos(clamp(dot(p, uImpactDir[i]), -1.0, 1.0)); // distance across the surface
+          if (d > 0.25) continue;
+          float wob = snoise(p * 140.0 + vec3(0.0, 0.0, uTime * 2.5));
+          float scar = smoothstep(0.03 + age * 0.006, 0.005, d) * smoothstep(0.1, 1.2, age) * smoothstep(9.0, 5.0, age);
+          c *= 1.0 - 0.55 * scar;
+          c += vec3(1.0, 0.95, 0.8) * exp(-age / 0.12) * smoothstep(0.04, 0.0, d) * 3.0;
+          float rr = 0.012 + 0.12 * sqrt(min(age, 1.6) / 1.6);
+          c += vec3(1.0, 0.6, 0.25) * exp(-pow((d - rr) / 0.007, 2.0)) * (1.0 - smoothstep(0.3, 1.6, age)) * 1.2;
+          float core = smoothstep(0.028 + 0.008 * wob, 0.0, d);
+          c += vec3(1.0, 0.42, 0.08) * core * (exp(-age / 2.0) * 1.8 + 0.3 * smoothstep(9.0, 3.0, age) * (0.6 + 0.4 * wob));
+        }
+
+        // Aurora glow on the ground beneath the curtains, on the night side.
+        float aur = exp(-pow((abs(asin(clamp(p.y, -1.0, 1.0))) - 1.2) / 0.07, 2.0));
+        c += vec3(0.15, 0.75, 0.4) * aur * smoothstep(0.15, -0.2, lam) * (0.5 + 0.5 * h01(p * 6.0 + vec3(0.0, uTime * 0.05, 0.0), 2)) * 0.35;
+
+        // The occasional orbital strike.
+        float fd = dot(p, uFlashDir);
+        c += uFlash * (vec3(1.0, 0.9, 0.75) * smoothstep(0.999, 0.99995, fd) * 4.0
+                     + vec3(1.0, 0.55, 0.2) * smoothstep(0.985, 1.0, fd) * 0.8);
+
+        // Hazy atmosphere thickening towards the edge on the day side.
+        float nz = max(dot(n, normalize(cameraPosition - vW)), 0.0);
+        c += vec3(1.0, 0.69, 0.36) * pow(1.0 - nz, 2.2) * smoothstep(-0.25, 0.5, lam) * 0.75;
+
+        gl_FragColor = vec4(c * uBright, 1.0);
+      }
+    `,
+  });
+  const planetMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 160, 120), planetMat);
+  planet.add(planetMesh);
+
+  // Glow around the edge, brighter on the sunlit side.
+  const glow = new THREE.Mesh(new THREE.SphereGeometry(1.1, 96, 64), new THREE.ShaderMaterial({
+    uniforms: shared,
+    vertexShader: SPHERE_VERT,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uSun, uCenter; uniform float uRadius, uBright;
+      varying vec3 vObj; varying vec3 vN; varying vec3 vW;
+      void main() {
+        vec3 D = normalize(vW - cameraPosition);
+        vec3 closest = cameraPosition + D * dot(uCenter - cameraPosition, D) - uCenter;
+        float dist = length(closest) / uRadius;
+        if (dist < 1.0) discard;
+        float g = pow(clamp(1.0 - (dist - 1.0) / 0.09, 0.0, 1.0), 2.6);
+        float a = g * smoothstep(-0.5, 1.0, dot(normalize(closest), uSun)) * 0.75;
+        gl_FragColor = vec4(vec3(1.0, 0.69, 0.36) * a * uBright, 1.0);
+      }
+    `,
+    side: THREE.BackSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  planet.add(glow);
+
+  const rings = new THREE.Mesh(new THREE.RingGeometry(1.3, 2.22, 360, 8), new THREE.ShaderMaterial({
+    uniforms: shared,
+    vertexShader: /* glsl */ `
+      varying vec3 vW; varying vec2 vLocal;
+      void main() {
+        vLocal = position.xy;
+        vec4 w = modelMatrix * vec4(position, 1.0);
+        vW = w.xyz;
+        gl_Position = projectionMatrix * viewMatrix * w;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uSun, uRingN, uCenter; uniform float uRadius, uTime, uBright;
+      varying vec3 vW; varying vec2 vLocal;
+      ${NOISE}
+      ${RING}
+      void main() {
+        float r = length(vLocal);
+        float dens = ringDensity(r);
+        if (dens < 0.002) discard;
+        // In the planet's shadow?
+        vec3 P = vW - uCenter;
+        float along = dot(P, uSun);
+        float miss = sqrt(max(dot(P, P) - along * along, 0.0)) / uRadius;
+        float shadow = along < 0.0 ? mix(0.06, 1.0, smoothstep(0.97, 1.03, miss)) : 1.0;
+        // Seeing the sunlit face, or the dim underside?
+        float side = dot(uRingN, uSun) * dot(uRingN, cameraPosition - vW) > 0.0 ? 1.0 : 0.4;
+        vec3 col = ringColour(r) * (0.04 + 0.96 * side) * shadow;
+        // Ice glinting in the sunlight.
+        float ang = atan(vLocal.y, vLocal.x);
+        col += vec3(1.0, 0.95, 0.85) * pow(max(snoise(vec3(r * 220.0, ang * 260.0, uTime * 0.5)), 0.0), 10.0) * 2.0 * shadow * side;
+        gl_FragColor = vec4(col * uBright, dens * (side < 1.0 ? 0.7 : 0.92));
+      }
+    `,
+    side: THREE.DoubleSide, transparent: true, depthWrite: false,
+  }));
+  rings.rotation.x = -Math.PI / 2; // into the planet's equator
+  planet.add(rings);
+
+  // ---------- Moon ----------
+  const moon = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 48), new THREE.ShaderMaterial({
+    uniforms: { uSun: { value: SUN } },
+    vertexShader: SPHERE_VERT,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uSun;
+      varying vec3 vObj; varying vec3 vN; varying vec3 vW;
+      ${NOISE}
+      vec3 hash3(vec3 p) {
+        p = vec3(dot(p, vec3(127.1, 311.7, 74.7)), dot(p, vec3(269.5, 183.3, 246.1)), dot(p, vec3(113.5, 271.9, 124.6)));
+        return fract(sin(p) * 43758.5453123);
+      }
+      float craters(vec3 p) {
+        vec3 i = floor(p), f = fract(p);
+        float m = 1.0;
+        for (int x = -1; x <= 1; x++) for (int y = -1; y <= 1; y++) for (int z = -1; z <= 1; z++) {
+          vec3 g = vec3(x, y, z), o = hash3(i + g);
+          if (o.y > 0.6) continue;
+          float d = length(g + o * 0.8 + 0.1 - f) / (0.15 + 0.3 * o.x * o.x);
+          if (d < 1.2) m *= d < 0.85 ? 0.8 : 1.0 + 0.3 * (1.0 - abs(d - 1.0) / 0.2);
+        }
+        return m;
+      }
+      void main() {
+        vec3 p = normalize(vObj), n = normalize(vN);
+        float lam = dot(n, uSun);
+        float tone = (70.0 + (h01(p * 2.5, 5) - 0.5) * 160.0) / 255.0;
+        tone *= 1.0 - smoothstep(0.52, 0.62, h01(p * 1.1 + 9.0, 3)) * 0.35; // darker plains
+        tone *= craters(p * 3.0) * craters(p * 6.5 + 3.7);
+        float lit = 0.02 + 0.98 * max(lam, 0.0) * smoothstep(-0.05, 0.3, lam);
+        gl_FragColor = vec4(vec3(tone * 1.02, tone, tone * 0.96) * lit, 1.0);
+      }
+    `,
+  }));
+  scene.add(moon);
+
+  // ---------- Nebula ----------
+  // Painted once into a texture, then gently churned and pulsed each frame (cheap to animate).
+  const QUAD_VERT = `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+  function bakeNebula(seed) {
+    const target = new THREE.WebGLRenderTarget(1024, 640, { depthBuffer: false });
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uSeed: { value: seed } },
+      vertexShader: QUAD_VERT,
+      fragmentShader: /* glsl */ `
+        uniform float uSeed; varying vec2 vUv;
+        ${NOISE}
+        void main() {
+          vec2 p = (vUv - 0.5) * vec2(1.6, 1.0);
+          vec2 X = p * 1.5 + uSeed;
+          float q1 = h01(vec3(X, 0.3), 4), q2 = h01(vec3(X + vec2(5.2, 1.3), 0.7), 4);
+          float v = h01(vec3(X + 1.8 * vec2(q1, q2), 1.7 + uSeed), 6);
+          vec2 d = p / vec2(0.62, 0.42);
+          float mask = exp(-dot(d, d) * 2.6);
+          float density = smoothstep(0.38, 0.7, v) * mask;
+          density *= 1.0 - smoothstep(0.55, 0.72, h01(vec3(X * 2.6, 4.1), 4)) * 0.75; // dark dust lanes
+          float core = smoothstep(0.56, 0.76, v) * mask;
+          vec3 c = mix(vec3(40, 120, 165), vec3(175, 55, 150), clamp((q1 - 0.35) * 3.0, 0.0, 1.0)) / 255.0;
+          c = mix(c, vec3(1.0, 0.69, 0.37), core * 0.8); // warm hazard-orange cores
+          gl_FragColor = vec4(c, clamp(density * 0.68 + core * 0.22, 0.0, 1.0));
+        }
+      `,
+      depthTest: false,
+    });
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
+    const bakeScene = new THREE.Scene();
+    bakeScene.add(quad);
+    renderer.setRenderTarget(target);
+    renderer.render(bakeScene, camera);
+    renderer.setRenderTarget(null);
+    mat.dispose(); quad.geometry.dispose();
+    return target.texture;
+  }
+  const nebulaMat = tex => new THREE.ShaderMaterial({
+    uniforms: { uTex: { value: tex }, uTime: shared.uTime, uSeed: { value: Math.random() * 10 } },
+    vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: /* glsl */ `
+      uniform sampler2D uTex; uniform float uTime, uSeed; varying vec2 vUv;
+      ${NOISE}
+      void main() {
+        float t = uTime * 0.025;
+        vec2 flow = vec2(snoise(vec3(vUv * 3.0, t + uSeed)), snoise(vec3(vUv * 3.0 + 7.0, t + uSeed))) * 0.014;
+        vec4 a = texture2D(uTex, vUv + flow);
+        float lum = max(a.r, max(a.g, a.b));
+        a.rgb *= 1.0 + 0.14 * sin(uTime * 0.25 + vUv.x * 5.0 + vUv.y * 3.0) * smoothstep(0.5, 0.9, lum);
+        gl_FragColor = a;
+      }
+    `,
+    transparent: true, depthWrite: false,
+  });
+  const nebulaA = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), nebulaMat(bakeNebula(0)));
+  const nebulaB = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), nebulaMat(bakeNebula(13.7)));
+  nebulaA.renderOrder = nebulaB.renderOrder = -1;
+  scene.add(nebulaA, nebulaB);
+
+  // ---------- Stars ----------
+  const starMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: shared.uTime, uPR: { value: 1 } },
+    vertexShader: /* glsl */ `
+      attribute float aSize; attribute vec3 aColor; attribute float aPhase;
+      uniform float uTime, uPR;
+      varying vec3 vC; varying float vBig;
+      void main() {
+        float tw = aPhase < 0.0 ? 1.0 : 0.65 + 0.35 * sin(uTime * (0.8 + aPhase * 2.0) + aPhase * 40.0);
+        vC = aColor * tw;
+        vBig = step(4.0, aSize);
+        gl_PointSize = aSize * uPR;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying vec3 vC; varying float vBig;
+      void main() {
+        vec2 p = gl_PointCoord - 0.5;
+        float a = smoothstep(0.5, 0.0, length(p)); a *= a * a;
+        float glint = (max(0.0, 1.0 - abs(p.x) * 16.0) * max(0.0, 1.0 - abs(p.y) * 2.0)
+                     + max(0.0, 1.0 - abs(p.y) * 16.0) * max(0.0, 1.0 - abs(p.x) * 2.0)) * 0.35 * vBig;
+        gl_FragColor = vec4(vC * (a + glint), 1.0);
+      }
+    `,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const stars = new THREE.Points(new THREE.BufferGeometry(), starMat);
+  stars.renderOrder = -2;
+  scene.add(stars);
+
+  const rng = seed => () => {
+    seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  // ---------- Meteors: lone shooting stars, and the occasional shower ----------
+  const meteorGeo = new THREE.PlaneGeometry(1, 1);
+  const meteors = Array.from({ length: 20 }, () => {
+    const mesh = new THREE.Mesh(meteorGeo, new THREE.ShaderMaterial({
+      uniforms: { uFade: { value: 0 }, uColor: { value: new THREE.Color() } },
+      vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: `uniform float uFade; uniform vec3 uColor; varying vec2 vUv;
+        void main() {
+          float across = 1.0 - abs(vUv.y - 0.5) * 2.0;
+          float tail = pow(vUv.x, 2.5) * across, head = smoothstep(0.92, 1.0, vUv.x) * across * 0.8;
+          gl_FragColor = vec4(uColor * (tail + head) * uFade, 1.0);
+        }`,
+      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    mesh.visible = false;
+    scene.add(mesh);
+    return { mesh, from: new THREE.Vector3(), dir: new THREE.Vector3(), born: -99, life: 1, speed: 0 };
+  });
+  const METEOR_COLOURS = [[1, 0.95, 0.85], [1, 0.95, 0.85], [0.75, 1, 0.85], [1, 0.75, 0.45]];
+  // sx, sy: start point on screen. angle: direction of travel (0 = right, up is positive).
+  function launchMeteor(sx, sy, angle, { len = 90, width = 0.9, speed = 290, life = 0.9 } = {}) {
+    const m = meteors.find(m => !m.mesh.visible);
+    if (!m) return;
+    m.from.copy(at(sx, sy, 800));
+    m.from.y += camera.position.y;
+    m.dir.set(Math.cos(angle), Math.sin(angle), 0);
+    m.mesh.rotation.z = angle;
+    m.mesh.scale.set(len, width, 1);
+    Object.assign(m, { speed, life, born: time });
+    m.mesh.material.uniforms.uColor.value.setRGB(...METEOR_COLOURS[(Math.random() * METEOR_COLOURS.length) | 0]);
+    m.mesh.visible = true;
+  }
+
+  // ---------- Meteor shower raining onto the planet, with impacts ----------
+  const MAX_IMPACTS = 12;
+  const impacts = Array.from({ length: MAX_IMPACTS }, () => ({ born: -99 }));
+  const bursts = Array.from({ length: MAX_IMPACTS }, () => { // glow that lifts off the surface at each strike
+    const mesh = new THREE.Mesh(meteorGeo, new THREE.ShaderMaterial({
+      uniforms: { uFade: { value: 0 } },
+      vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: `uniform float uFade; varying vec2 vUv;
+        void main() {
+          float d = length(vUv - 0.5) * 2.0;
+          float a = (exp(-d * d * 6.0) + exp(-d * 18.0) * 1.5) * (1.0 - smoothstep(0.85, 1.0, d));
+          gl_FragColor = vec4(vec3(1.0, 0.78, 0.45) * a * uFade, 1.0);
+        }`,
+      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    mesh.visible = false;
+    scene.add(mesh);
+    return { mesh, born: -99, size: 1, life: 0.7 };
+  });
+  const strikers = Array.from({ length: 16 }, () => {
+    const mesh = new THREE.Mesh(meteorGeo, meteors[0].mesh.material.clone());
+    mesh.visible = false;
+    scene.add(mesh);
+    return { mesh, from: new THREE.Vector3(), to: new THREE.Vector3(), hits: true, born: -99, life: 1, len: 1 };
+  });
+  const showerDir = new THREE.Vector3();
+  const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _v = new THREE.Vector3(), _m = new THREE.Matrix4();
+
+  function startShower() {
+    // All the meteors in one shower arrive from the same direction, roughly from the upper left.
+    showerDir.set(-0.55 + (Math.random() - 0.5) * 0.5, 0.55 + (Math.random() - 0.5) * 0.4, 0.62).normalize();
+  }
+  function launchStriker() {
+    const R = planet.scale.x, toCam = _v.copy(camera.position).sub(planet.position).normalize();
+    for (let tries = 0; tries < 40; tries++) {
+      const n = new THREE.Vector3().randomDirection();
+      if (n.dot(toCam) < 0.35 || n.dot(showerDir) < 0.25) continue; // on the visible side, facing the shower
+      const target = _b.copy(planet.position).addScaledVector(n, R);
+      const ndc = target.clone().project(camera);
+      if (Math.abs(ndc.x) > 0.92 || Math.abs(ndc.y) > 0.92) continue;   // and on screen
+      const s = strikers.find(s => !s.mesh.visible);
+      if (!s) return;
+      s.hits = Math.random() > 0.25; // the rest burn up in the atmosphere
+      s.to.copy(target).addScaledVector(n, s.hits ? 0 : R * 0.07);
+      const incoming = new THREE.Vector3().randomDirection().multiplyScalar(0.06).add(showerDir).normalize();
+      const dist = R * (0.9 + Math.random() * 0.8);
+      s.from.copy(s.to).addScaledVector(incoming, dist);
+      s.life = dist / (R * 2.2);
+      s.len = R * (0.25 + Math.random() * 0.3);
+      s.mesh.scale.set(s.len, R * 0.007 * (0.8 + Math.random() * 0.6), 1);
+      s.mesh.material.uniforms.uColor.value.setRGB(1, 0.85 + Math.random() * 0.1, 0.6 + Math.random() * 0.2);
+      s.born = time;
+      s.mesh.visible = true;
+      return;
+    }
+  }
+  function boom(point, hit) {
+    const oldest = list => list.reduce((o, x) => (x.born < o.born ? x : o));
+    const b = oldest(bursts);
+    Object.assign(b, { born: time, size: planet.scale.x * (hit ? 0.22 : 0.1), life: hit ? 0.8 : 0.45 });
+    b.mesh.position.copy(point).addScaledVector(_a.copy(camera.position).sub(point).normalize(), planet.scale.x * 0.12);
+    b.mesh.visible = true;
+    if (hit) {
+      // Record the strike in the planet's own spinning frame, so the scar turns with the ground.
+      const imp = oldest(impacts);
+      imp.born = time;
+      planetMesh.getWorldQuaternion(tmpQ).invert();
+      planetMat.uniforms.uImpactDir.value[impacts.indexOf(imp)].copy(point).sub(planet.position).normalize().applyQuaternion(tmpQ);
+    }
+  }
+  function updateStrikers() {
+    for (const s of strikers) {
+      if (!s.mesh.visible) continue;
+      const t = (time - s.born) / s.life;
+      if (t >= 1) { s.mesh.visible = false; boom(s.to, s.hits); continue; }
+      // Lay the streak along its path, turned to face the camera.
+      const dir = _a.copy(s.to).sub(s.from).normalize();
+      const head = _b.copy(s.from).lerp(s.to, t);
+      const y = new THREE.Vector3().crossVectors(_v.copy(camera.position).sub(head).normalize(), dir).normalize();
+      s.mesh.quaternion.setFromRotationMatrix(_m.makeBasis(dir, y, new THREE.Vector3().crossVectors(dir, y)));
+      s.mesh.position.copy(head).addScaledVector(dir, -s.len / 2);
+      s.mesh.material.uniforms.uFade.value = Math.min(1, t / 0.15) * (0.6 + 0.6 * t); // brightens as it hits the air
+    }
+    for (const b of bursts) {
+      if (!b.mesh.visible) continue;
+      const t = (time - b.born) / b.life;
+      if (t >= 1) { b.mesh.visible = false; continue; }
+      b.mesh.scale.setScalar(b.size * (0.4 + 0.6 * Math.sqrt(t)));
+      b.mesh.material.uniforms.uFade.value = (1 - t) * (1 - t);
+    }
+    impacts.forEach((imp, i) => {
+      const age = time - imp.born;
+      planetMat.uniforms.uImpactAge.value[i] = age < 9 ? age : -1;
+    });
+  }
+
+  // ---------- Aurora: shimmering curtains in a wavy ring around each pole ----------
+  const auroraMat = sign => new THREE.ShaderMaterial({
+    uniforms: { ...shared, uSign: { value: sign }, uLat: { value: 1.2 } },
+    vertexShader: /* glsl */ `
+      uniform float uTime, uSign, uLat;
+      varying vec2 vUv; varying vec3 vN;
+      ${NOISE}
+      void main() {
+        float th = uv.x * 6.2831853;
+        vec2 cs = vec2(cos(th), sin(th));
+        // The ring wanders slowly, like a real auroral oval.
+        float lat = uLat + snoise(vec3(cs * 1.5, uTime * 0.05 + uSign * 3.0)) * 0.07
+                         + snoise(vec3(cs * 4.0, uTime * 0.12)) * 0.02;
+        vec3 base = vec3(cos(lat) * cs.x, uSign * sin(lat), cos(lat) * cs.y);
+        vN = normalize(mat3(modelMatrix) * base);
+        vUv = uv;
+        gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(base * (1.005 + uv.y * 0.13), 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform float uTime, uBright; uniform vec3 uSun;
+      varying vec2 vUv; varying vec3 vN;
+      ${NOISE}
+      void main() {
+        float th = vUv.x * 6.2831853;
+        vec2 cs = vec2(cos(th), sin(th));
+        float rays = smoothstep(0.3, 0.75, h01(vec3(cs * 9.0, uTime * 0.12), 4)) * 0.75 + 0.25;   // broad folds, never quite dark
+        float flare = smoothstep(0.3, 0.7, h01(vec3(cs * 2.5, uTime * 0.04 + 10.0), 3));    // where it's flaring
+        float h = vUv.y;
+        float vert = smoothstep(0.0, 0.06, h) * (0.35 + 0.65 * exp(-h * 6.0)) * (1.0 - smoothstep(0.55, 1.0, h)); // bright lower edge, soft top
+        vec3 col = mix(vec3(0.25, 1.0, 0.55), vec3(0.85, 0.3, 0.9), smoothstep(0.3, 0.95, h)); // green to magenta
+        float night = smoothstep(0.25, -0.15, dot(vN, uSun));
+        float a = rays * flare * vert * (0.5 + 0.5 * night) * 1.6;
+        a *= 0.8 + 0.2 * snoise(vec3(cs * 30.0, uTime * 1.2)); // shimmer
+        gl_FragColor = vec4(col * a * uBright, 1.0);
+      }
+    `,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+  });
+  for (const sign of [1, -1]) planet.add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1, 256, 16), auroraMat(sign)));
+
+  // ---------- Layout: place everything to match the page ----------
+  let vw = 1, vh = 1, k = 0, bright = 0.85;
+  const perPx = D => (2 * D * TAN) / vh; // world units per screen pixel at depth D
+  const at = (sx, sy, D) => new THREE.Vector3((sx - vw / 2) * perPx(D), -(sy - vh / 2) * perPx(D), -D);
+
+  function buildStars(maxScroll) {
+    const r = rng(3), aspect = vw / vh;
+    const near = 1000, far = 1500, travel = maxScroll * k;
+    const pos = [], col = [], size = [], phase = [];
+    const count = Math.round(((vw * vh) / 900) * (1 + travel / (2 * near * TAN)));
+    for (let i = 0; i < count; i++) {
+      const d = near + r() * (far - near), half = d * TAN * 1.12;
+      pos.push((r() * 2 - 1) * half * aspect, -travel + (r() * (2 * half + travel)) - half, -d);
+      const bigStar = r() < 0.035, warm = r() < 0.12, b = 0.3 + r() * 0.7;
+      col.push(...(warm ? [1, 0.86, 0.55] : [0.86, 0.9, 1]).map(c => c * b));
+      size.push(bigStar ? 4 + r() * 3 : 1.4 + r() * 1.8);
+      phase.push(r() < 0.3 ? r() : -1);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("aColor", new THREE.Float32BufferAttribute(col, 3));
+    g.setAttribute("aSize", new THREE.Float32BufferAttribute(size, 1));
+    g.setAttribute("aPhase", new THREE.Float32BufferAttribute(phase, 1));
+    stars.geometry.dispose();
+    stars.geometry = g;
+  }
+
+  function layout() {
+    vw = innerWidth; vh = innerHeight;
+    const maxScroll = Math.max(0, document.documentElement.scrollHeight - vh);
+    const pr = Math.min(devicePixelRatio || 1, phone.matches ? 1 : 1.5);
+    renderer.setPixelRatio(pr);
+    renderer.setSize(vw, vh, false);
+    camera.aspect = vw / vh;
+    camera.updateProjectionMatrix();
+    starMat.uniforms.uPR.value = pr;
+    k = 0.3 * perPx(DP); // the planet drifts at 30% of the scroll speed; the rest follows from depth
+
+    const W = Math.min(vw, 1040), Rpx = W / 2 / 1.09;
+    planet.position.copy(at(vw * 1.24 - W / 2, vh * 0.62 + W / 2, DP));
+    planet.scale.setScalar(Rpx * perPx(DP));
+    moon.position.copy(at(vw * 0.05 + 65, vh + 65, DM));
+    moon.scale.setScalar(65 * perPx(DM));
+    nebulaA.position.copy(at(vw * 0.78, vh * 0.3, DN));
+    nebulaA.scale.set(vw * 1.4 * perPx(DN), (vw * 1.4 * perPx(DN)) / 1.6, 1);
+    nebulaB.position.copy(at(vw * 0.1, vh * 0.95, DN));
+    nebulaB.scale.set(vw * 0.95 * perPx(DN), (vw * 0.95 * perPx(DN)) / 1.6, 1);
+    buildStars(maxScroll);
+
+    bright = phone.matches ? 0.45 : 0.62; // dimmed so text over the planet stays readable, more so on phones
+    shared.uBright.value = bright;
+  }
+
+  // ---------- Animation ----------
+  const tmpQ = new THREE.Quaternion();
+  let time = 0, last = 0, running = false, odd = false;
+  let nextFlash = 4, flashAt = -99;
+  let nextMeteor = 3, nextShower = 8, showerUntil = -1, nextInShower = 0;
+
+  function syncUniforms() {
+    camera.position.y = reduce.matches ? 0 : -scrollY * k;
+    planet.updateMatrixWorld();
+    shared.uCenter.value.copy(planet.position);
+    shared.uRadius.value = planet.scale.x;
+    shared.uRingN.value.set(0, 1, 0).applyQuaternion(planet.quaternion);
+    planetMesh.getWorldQuaternion(tmpQ).invert();
+    planetMat.uniforms.uSunObj.value.copy(SUN).applyQuaternion(tmpQ);
+  }
+
+  function tick(dt) {
+    time += dt;
+    shared.uTime.value = time;
+    planetMesh.rotation.y += dt * 0.02;    // a full turn takes about five minutes
+    planetMat.uniforms.uCloudRot.value = time * 0.006;
+    moon.rotation.y += dt * 0.01;
+
+    // Orbital strike: a flash somewhere on the visible night side.
+    if (time > nextFlash) {
+      const toCam = camera.position.clone().sub(planet.position).normalize();
+      for (let tries = 0; tries < 50; tries++) {
+        const v = new THREE.Vector3().randomDirection();
+        if (v.dot(SUN) < -0.25 && v.dot(toCam) > 0.35) {
+          planetMesh.getWorldQuaternion(tmpQ).invert();
+          planetMat.uniforms.uFlashDir.value.copy(v.applyQuaternion(tmpQ));
+          flashAt = time;
+          break;
         }
       }
-      g.putImageData(img, 0, 0);
+      nextFlash = time + 5 + Math.random() * 7;
     }
+    const ft = time - flashAt;
+    planetMat.uniforms.uFlash.value = ft < 0 ? 0 : Math.min(1, ft / 0.08) * Math.exp(-ft / 0.5);
 
-    let queued = false;
-    function update() {
-      queued = false;
-      const y = reduce.matches ? 0 : scrollY;
-      layers.forEach(l => { l.style.transform = `translate3d(0, ${-y * l.dataset.speed}px, 0)`; });
+    // A lone shooting star now and then, heading down-left or down-right.
+    const rand = Math.random;
+    if (time > nextMeteor) {
+      const tilt = 0.35 + rand() * 0.35;
+      launchMeteor(vw * (0.1 + rand() * 0.8), vh * (0.05 + rand() * 0.45), rand() < 0.5 ? -tilt : Math.PI + tilt);
+      nextMeteor = time + 6 + rand() * 9;
     }
-    const redraw = () => { drawStars(); drawNebula(); update(); };
+    // Meteor shower: for a few seconds, meteors rain down onto the planet.
+    if (time > nextShower) {
+      startShower();
+      showerUntil = time + 5;
+      nextShower = time + 25 + rand() * 20;
+    }
+    if (time < showerUntil && time > nextInShower) {
+      launchStriker();
+      nextInShower = time + 0.15 + rand() * 0.35;
+    }
+    updateStrikers();
+    for (const m of meteors) {
+      if (!m.mesh.visible) continue;
+      const t = (time - m.born) / m.life;
+      if (t >= 1) { m.mesh.visible = false; continue; }
+      m.mesh.position.copy(m.from).addScaledVector(m.dir, t * m.life * m.speed);
+      m.mesh.material.uniforms.uFade.value = Math.sin(Math.PI * t);
+    }
+  }
 
-    addEventListener("scroll", () => { if (!queued) { queued = true; requestAnimationFrame(update); } }, { passive: true });
-    let timer;
-    addEventListener("resize", () => { clearTimeout(timer); timer = setTimeout(redraw, 150); });
-    reduce.addEventListener("change", redraw);
-    addEventListener("load", redraw); // page height can change once fonts and images arrive
-    redraw();
-    // The planet and moon take a moment to paint, so they fade in once ready.
-    setTimeout(async () => {
-      await drawMoon(document.querySelector(".space .moon canvas"));
-      await drawPlanet(document.querySelector(".space .planet canvas"));
-    }, 50);
-  })();
+  function render() { syncUniforms(); renderer.render(scene, camera); }
+
+  function frame(now) {
+    if (!running) return;
+    requestAnimationFrame(frame);
+    if (phone.matches && (odd = !odd)) return; // about 30 frames a second on phones, to save battery
+    const dt = Math.min(0.1, (now - last) / 1000 || 0);
+    last = now;
+    tick(dt);
+    render();
+  }
+
+  function start() {
+    layout();
+    if (reduce.matches) { running = false; render(); return; } // still image for reduced motion
+    if (!running) { running = true; last = performance.now(); requestAnimationFrame(frame); }
+  }
+
+  let timer;
+  addEventListener("resize", () => { clearTimeout(timer); timer = setTimeout(() => { layout(); if (!running) render(); }, 150); });
+  addEventListener("load", () => { layout(); if (!running) render(); }); // page height can change once fonts and images arrive
+  reduce.addEventListener("change", () => { running = false; start(); });
+  phone.addEventListener("change", () => { layout(); if (!running) render(); });
+  start();
 </script>
 </body>
 </html>
