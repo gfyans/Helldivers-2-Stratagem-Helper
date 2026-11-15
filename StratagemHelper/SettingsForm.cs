@@ -240,8 +240,8 @@ internal sealed class SettingsForm : Form
         page.Controls.Add(_soundBox);
         var soundRow = Row();
         soundRow.Margin = new Padding(Indent, 0, 0, 0);
-        var testOk = new HdButton("▶ Hear success") { Margin = new Padding(0, 0, 8, 0), AccessibleName = "Play the success sound" };
-        var testFail = new HdButton("▶ Hear fail") { Margin = Padding.Empty, AccessibleName = "Play the fail sound" };
+        var testOk = new HdButton("Hear success", icon: ButtonIcon.Play) { Margin = new Padding(0, 0, 8, 0), AccessibleName = "Play the success sound" };
+        var testFail = new HdButton("Hear fail", icon: ButtonIcon.Play) { Margin = Padding.Empty, AccessibleName = "Play the fail sound" };
         testOk.Click += (_, _) => Sounds.Success();
         testFail.Click += (_, _) => Sounds.Failure();
         soundRow.Controls.Add(testOk);

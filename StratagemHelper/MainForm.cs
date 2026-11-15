@@ -30,8 +30,7 @@ public sealed class MainForm : Form
     private readonly KeyBadge[] _badges = new KeyBadge[9];
     private readonly Label[] _statNumbers = new Label[3];
     private readonly Label[] _statCaptions = new Label[3];
-    private readonly Label _statusDot = new() { AutoSize = true, Text = "■", ForeColor = Theme.Amber, Font = Theme.Body };
-    private readonly Label _stateLabel = new() { AutoSize = true, ForeColor = Theme.Text, Text = "", Font = Theme.Heading };
+    private readonly StatusLight _stateLabel = new() { ForeColor = Theme.Text, Text = "", Font = Theme.Heading };
     private readonly Label _status = new() { AutoSize = false, AutoEllipsis = true, ForeColor = Theme.Muted, Text = "", Font = Theme.Small, TextAlign = ContentAlignment.MiddleRight };
     private readonly System.Windows.Forms.Timer _gameTimer = new() { Interval = 2000 };
     private bool _gameRunning;
@@ -41,7 +40,7 @@ public sealed class MainForm : Form
     private SettingsForm? _settingsForm;
 
     // Updates
-    private readonly HdButton _updateBtn = new("Update", primary: true) { Visible = false };
+    private readonly HdButton _updateBtn = new("Update", primary: true, icon: ButtonIcon.Up) { Visible = false };
     private readonly System.Windows.Forms.Timer _updateTimer = new() { Interval = 15_000 }; // first check soon after start, then every 12 h
     private Updater.Release? _available;
     private string? _downloaded;
@@ -162,7 +161,7 @@ public sealed class MainForm : Form
             Text = "SCAN  ·  CTRL + C      CALL IN  ·  CTRL + 1–9      OVERLAY  ·  CTRL + V",
             Font = Theme.Small, ForeColor = Theme.Muted, AutoSize = true, Location = new Point(Pad, 50),
         });
-        var settingsBtn = new HdButton("⚙  Settings");
+        var settingsBtn = new HdButton("Settings", icon: ButtonIcon.Cog);
         settingsBtn.Click += (_, _) => OpenSettings();
         header.Controls.Add(settingsBtn);
         _updateBtn.Click += (_, _) => OnUpdateButton();
@@ -243,13 +242,10 @@ public sealed class MainForm : Form
         // ---- Status bar ----
         var footer = new Panel { Size = new Size(W, 30), BackColor = Theme.Panel, Margin = Padding.Empty };
         footer.Paint += (_, e) => { using var p = new Pen(Theme.Border); e.Graphics.DrawLine(p, 0, 0, footer.Width, 0); };
-        _statusDot.BackColor = Theme.Panel;
-        _statusDot.Location = new Point(Pad - 2, 5);
         _stateLabel.BackColor = Theme.Panel;
-        _stateLabel.Location = new Point(Pad + 16, 6);
+        _stateLabel.Bounds = new Rectangle(Pad - 2, 1, 226, 29); // below the top rule
         _status.BackColor = Theme.Panel;
         _status.Bounds = new Rectangle(Pad + 230, 5, W - Pad * 2 - 230, 20);
-        footer.Controls.Add(_statusDot);
         footer.Controls.Add(_stateLabel);
         footer.Controls.Add(_status);
         root.Controls.Add(footer);
@@ -334,14 +330,14 @@ public sealed class MainForm : Form
             if (!Updater.CanSelfUpdate)
             {
                 SetUpdateInfo($"Version {r.Version} is out. You can grab it from GitHub.");
-                ShowUpdateButton($"⬆ v{r.Version} available");
+                ShowUpdateButton($"v{r.Version} available");
                 SetStatus($"Version {r.Version} is out");
                 return;
             }
 
             SetUpdateInfo($"Downloading version {r.Version}…");
             _downloaded = await Updater.DownloadAsync(r);
-            ShowUpdateButton($"⬆ Update to v{r.Version}");
+            ShowUpdateButton($"Update to v{r.Version}");
             if (_gameRunning)
             {
                 SetUpdateInfo($"Version {r.Version} is ready. It'll install when you close Helldivers 2.");
@@ -379,7 +375,7 @@ public sealed class MainForm : Form
             _downloaded = null;
             SetUpdateInfo("The update didn't install. You can download it from GitHub instead.");
             SetStatus("The update didn't install", Theme.Danger);
-            ShowUpdateButton($"⬆ v{_available?.Version} on GitHub");
+            ShowUpdateButton($"v{_available?.Version} on GitHub");
         }
     }
 
@@ -784,11 +780,10 @@ public sealed class MainForm : Form
                           : !_gameRunning ? (Theme.Amber, "WAITING FOR HELLDIVERS 2")
                           : (Theme.Ok, "READY");
         bool changed = _stateLabel.Text.Length > 0 && _stateLabel.Text != text;
-        _statusDot.ForeColor = color;
+        _stateLabel.Light = color;
         _stateLabel.Text = text;
         string spoken = !_hook.Enabled ? "Hotkeys are off" : !_gameRunning ? "Waiting for Helldivers 2" : "Ready";
         _stateLabel.AccessibleName = "Status: " + spoken;
-        _statusDot.AccessibleName = spoken;
         if (changed) Announce(spoken);
         if (_tray != null) _tray.Text = "Stratagem Helper — " + spoken;
     }

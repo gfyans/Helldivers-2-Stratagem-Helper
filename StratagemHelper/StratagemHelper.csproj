@@ -17,4 +17,9 @@
     <PackageReference Include="System.Speech" Version="11.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Chakra Petch (SIL Open Font License, see Fonts\OFL.txt): the heading font, shared with the website. -->
+    <EmbeddedResource Include="Fonts\*.ttf;Fonts\OFL.txt" LogicalName="StratagemHelper.Fonts.%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>

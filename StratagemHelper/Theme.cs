@@ -5,7 +5,7 @@ using System.Runtime.InteropServices;
 namespace StratagemHelper;
 
 /// <summary>
-/// Dark "military terminal" look: gunmetal panels, hazard yellow accents, condensed caps for headings.
+/// Dark "military terminal" look: gunmetal panels, hazard yellow accents, Chakra Petch caps for headings.
 /// Follows Windows High Contrast when it's on, and scales with the app's text-size setting (and Windows
 /// display scaling, via each form's AutoScaleMode.Dpi).
 /// </summary>
@@ -60,11 +60,11 @@ internal static class Theme
         }
 
         float s = TextScale;
-        Title = new Font(Condensed, 20f * s, FontStyle.Bold);
-        Heading = new Font(Condensed, 11f * s, FontStyle.Bold);
+        Title = new Font(Display, 17f * s, FontStyle.Bold); // wider than the old condensed face: leaves room for the header's Update button
+        Heading = new Font(Display, 11f * s, FontStyle.Bold);
         Body = new Font(Regular, 10f * s);
         Small = new Font(Regular, 9.5f * s);
-        Badge = new Font(Condensed, 13f * s, FontStyle.Bold);
+        Badge = new Font(Display, 13f * s, FontStyle.Bold);
     }
 
     private static string Family(params string[] candidates)
@@ -74,8 +74,39 @@ internal static class Theme
         return candidates.FirstOrDefault(installed.Contains) ?? "Segoe UI";
     }
 
-    private static readonly string Condensed = Family("Bahnschrift Condensed", "Bahnschrift SemiCondensed", "Bahnschrift", "Segoe UI");
+    // Headings use Chakra Petch, the same font as the website. It ships inside the exe (Fonts\, SIL OFL).
+    private static readonly PrivateFontCollection EmbeddedFonts = new();
+    private static readonly FontFamily Display = LoadEmbeddedFamily("Chakra Petch", "ChakraPetch-Regular.ttf", "ChakraPetch-Bold.ttf");
     private static readonly string Regular = Family("Bahnschrift", "Segoe UI");
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr AddFontMemResourceEx(IntPtr pbFont, uint cbFont, IntPtr pdv, ref uint pcFonts);
+
+    private static FontFamily LoadEmbeddedFamily(string family, params string[] files)
+    {
+        try
+        {
+            var asm = typeof(Theme).Assembly;
+            foreach (var file in files)
+            {
+                using var stream = asm.GetManifestResourceStream("StratagemHelper.Fonts." + file)
+                    ?? throw new FileNotFoundException(file);
+                var data = new byte[stream.Length];
+                stream.ReadExactly(data);
+                // Left allocated for the life of the process: both GDI+ and GDI read from it.
+                IntPtr mem = Marshal.AllocCoTaskMem(data.Length);
+                Marshal.Copy(data, 0, mem, data.Length);
+                EmbeddedFonts.AddMemoryFont(mem, data.Length);              // GDI+: Font objects
+                uint count = 0;
+                AddFontMemResourceEx(mem, (uint)data.Length, IntPtr.Zero, ref count); // GDI: TextRenderer finds it by name
+            }
+            return EmbeddedFonts.Families.First(f => f.Name == family);
+        }
+        catch
+        {
+            return new FontFamily(Family("Bahnschrift SemiCondensed", "Bahnschrift", "Segoe UI"));
+        }
+    }
 
     // ---------------- Scaling ----------------
 
@@ -199,42 +230,126 @@ internal static class Theme
         c.Focused && c.IsHandleCreated &&
         (SendMessage(c.Handle, WM_QUERYUISTATE, IntPtr.Zero, IntPtr.Zero).ToInt64() & UISF_HIDEFOCUS) == 0;
 
-    private static readonly Dictionary<(string, float, FontStyle), int> CapsNudge = new();
+    private const TextFormatFlags LineFlags = TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
+    private static readonly Dictionary<(string, float, FontStyle, string), (int Top, int Height)> InkCache = new();
 
     /// <summary>
-    /// Draws capitals centred on the letters themselves. Windows centres the whole line, including the empty
-    /// space kept for tails like "g", which makes all-caps text sit a few pixels high.
+    /// The rows that actually get ink when <paramref name="sample"/> is drawn with its line top at y = 0.
+    /// For "H" that's the capital height. Measured once per font.
     /// </summary>
-    public static void DrawCaps(Graphics g, string text, Font font, Rectangle r, Color color, TextFormatFlags flags = TextFormatFlags.HorizontalCenter)
+    public static (int Top, int Height) Ink(Font font, string sample = "H")
     {
-        r.Offset(0, CapsOffset(font));
-        TextRenderer.DrawText(g, text, font, r, color, flags | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
-    }
-
-    /// <summary>How far to move a line of capitals down so the letters, not the line, are centred. Measured once per font.</summary>
-    private static int CapsOffset(Font font)
-    {
-        var key = (font.Name, font.Size, font.Style);
-        lock (CapsNudge)
+        var key = (font.Name, font.Size, font.Style, sample);
+        lock (InkCache)
         {
-            if (CapsNudge.TryGetValue(key, out int n)) return n;
-            int h = TextRenderer.MeasureText("H", font).Height;
-            using var bmp = new Bitmap(h * 2, h);
+            if (InkCache.TryGetValue(key, out var ink)) return ink;
+            var size = TextRenderer.MeasureText(sample, font, Size.Empty, LineFlags);
+            int w = Math.Max(1, size.Width + 4), h = Math.Max(1, size.Height);
+            using var bmp = new Bitmap(w, h);
             using (var g = Graphics.FromImage(bmp))
             {
                 g.Clear(Color.Black);
-                TextRenderer.DrawText(g, "H", font, new Rectangle(0, 0, h * 2, h), Color.White, Color.Black,
-                    TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+                TextRenderer.DrawText(g, sample, font, new Point(0, 0), Color.White, Color.Black, LineFlags);
             }
             int top = -1, bottom = -1;
             for (int y = 0; y < h; y++)
-                for (int x = 0; x < h * 2; x++)
-                    if (bmp.GetPixel(x, y).G > 128) { if (top < 0) top = y; bottom = y; break; }
-            // Line centre minus ink centre (in half pixels, rounded).
-            n = top < 0 ? 0 : (int)Math.Round((h - (top + bottom + 1)) / 2.0, MidpointRounding.AwayFromZero);
-            CapsNudge[key] = n;
-            return n;
+                for (int x = 0; x < w; x++)
+                    // 30%: a softened top row of the letters is plainly visible at 40%, barely at 20%.
+                    if (bmp.GetPixel(x, y).G > 76) { if (top < 0) top = y; bottom = y; break; }
+            ink = top < 0 ? (0, h) : (top, bottom - top + 1);
+            InkCache[key] = ink;
+            return ink;
         }
+    }
+
+    /// <summary>What to line up on: the capitals, or for text with no letters (like "—") its own marks.</summary>
+    private static string InkSample(string text) => text.Any(char.IsLetterOrDigit) ? "H" : text;
+
+    /// <summary>
+    /// Top row of the capitals when they're centred in <paramref name="r"/>. Exact when r's height and the
+    /// capital height are both odd or both even (see <see cref="FitCaps"/>); otherwise half a pixel high.
+    /// </summary>
+    public static int CapsTop(Font font, Rectangle r, string text = "H") => r.Top + (r.Height - Ink(font, InkSample(text)).Height) / 2;
+
+    /// <summary>
+    /// <paramref name="height"/>, or one more, so that the space left for text (height minus
+    /// <paramref name="chrome"/>) centres the capitals exactly instead of leaving them half a pixel off.
+    /// </summary>
+    public static int FitCaps(Font font, int height, int chrome) => height + ((height - chrome - Ink(font).Height) & 1);
+
+    /// <summary>
+    /// Draws text centred on the capitals themselves. Windows centres the whole line, including the empty
+    /// space kept for accents and tails like "g", which makes all-caps text sit off-centre.
+    /// </summary>
+    public static void DrawCaps(Graphics g, string text, Font font, Rectangle r, Color color, TextFormatFlags flags = TextFormatFlags.HorizontalCenter)
+    {
+        int y = CapsTop(font, r, text) - Ink(font, InkSample(text)).Top;
+        flags &= ~(TextFormatFlags.VerticalCenter | TextFormatFlags.Bottom);
+        var line = new Rectangle(r.Left, y, r.Width, Math.Max(r.Height, font.Height * 2));
+        TextRenderer.DrawText(g, text, font, line, color, flags | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+    }
+
+    /// <summary>Width of an icon drawn beside capitals of height <paramref name="capHeight"/>.</summary>
+    public static int IconWidth(ButtonIcon icon, int capHeight) => icon switch
+    {
+        ButtonIcon.Cog => (int)Math.Round(capHeight * 1.4),
+        ButtonIcon.Play => (int)Math.Round(capHeight * 0.85),
+        ButtonIcon.Up => capHeight,
+        _ => 0,
+    };
+
+    /// <summary>
+    /// Draws an icon as a shape, centred on the capitals whose rows are <paramref name="capTop"/> to
+    /// capTop + capHeight. Drawn rather than taken from a font so it lines up exactly and looks the same everywhere.
+    /// </summary>
+    public static void DrawIcon(Graphics g, ButtonIcon icon, float x, int capTop, int capHeight, Color color)
+    {
+        if (icon == ButtonIcon.None) return;
+        var state = g.Save();
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.PixelOffsetMode = PixelOffsetMode.Half; // whole numbers are pixel edges, so shapes meet the letters' rows exactly
+        using var brush = new SolidBrush(color);
+        float w = IconWidth(icon, capHeight), top = capTop, bottom = capTop + capHeight, cy = (top + bottom) / 2;
+        switch (icon)
+        {
+            case ButtonIcon.Play:
+                g.FillPolygon(brush, new[] { new PointF(x, top), new PointF(x + w, cy), new PointF(x, bottom) });
+                break;
+            case ButtonIcon.Up:
+                g.FillPolygon(brush, new PointF[]
+                {
+                    new(x + w * 0.5f, top), new(x + w, cy), new(x + w * 0.68f, cy), new(x + w * 0.68f, bottom),
+                    new(x + w * 0.32f, bottom), new(x + w * 0.32f, cy), new(x, cy),
+                });
+                break;
+            case ButtonIcon.Cog:
+                using (var path = CogPath(x + w / 2, cy, w / 2)) g.FillPath(brush, path);
+                break;
+        }
+        g.Restore(state);
+    }
+
+    /// <summary>Eight-toothed cog with a round hole, radius <paramref name="r"/>.</summary>
+    private static GraphicsPath CogPath(float cx, float cy, float r)
+    {
+        const int teeth = 8;
+        float root = r * 0.7f;
+        double step = 2 * Math.PI / teeth, tip = step * 0.2, foot = step * 0.3;
+        PointF P(float radius, double a) => new(cx + radius * (float)Math.Cos(a), cy + radius * (float)Math.Sin(a));
+        var pts = new List<PointF>();
+        for (int i = 0; i < teeth; i++)
+        {
+            double a = i * step - Math.PI / 2; // a tooth straight up
+            pts.Add(P(root, a - foot));
+            pts.Add(P(r, a - tip));
+            pts.Add(P(r, a + tip));
+            pts.Add(P(root, a + foot));
+        }
+        var path = new GraphicsPath(FillMode.Alternate);
+        path.AddPolygon(pts.ToArray());
+        float hole = r * 0.38f; // big enough to stay open at the smallest text size
+        path.AddEllipse(cx - hole, cy - hole, hole * 2, hole * 2);
+        return path;
     }
 
     /// <summary>A clearly visible keyboard-focus ring (2 px, high contrast).</summary>
@@ -329,6 +444,27 @@ internal sealed class SectionHeader : DrawnLabel
         using var pen = new Pen(Theme.Border);
         int x = tx + size.Width + Height / 6;
         g.DrawLine(pen, x, Height / 2, Width, Height / 2);
+    }
+}
+
+/// <summary>Coloured square and a caps status word, e.g. "■ READY", the square centred on the capitals.</summary>
+internal sealed class StatusLight : DrawnLabel
+{
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Color Light { get; set { field = value; Invalidate(); } } = Theme.Amber;
+
+    protected override void OnTextChanged(EventArgs e) { base.OnTextChanged(e); Invalidate(); }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.Clear(BackColor);
+        int cap = Theme.Ink(Font).Height, capTop = Theme.CapsTop(Font, ClientRectangle);
+        int square = (int)Math.Round(cap * 0.7);
+        square += (cap - square) & 1; // same parity as the capitals, so it centres on them exactly
+        using (var b = new SolidBrush(Light)) g.FillRectangle(b, 2, capTop + (cap - square) / 2, square, square);
+        int tx = 2 + square * 2;
+        Theme.DrawCaps(g, Text, Font, new Rectangle(tx, 0, Width - tx, Height), ForeColor, TextFormatFlags.Left | TextFormatFlags.NoPadding);
     }
 }
 
@@ -638,8 +774,21 @@ internal sealed class HdBindBox : Button
         bool hover = ClientRectangle.Contains(PointToClient(MousePosition));
         using (var p = new Pen(_capturing || hover ? Theme.Yellow : Theme.ControlBorder)) g.DrawRectangle(p, r);
         var color = _capturing ? Theme.OnAccent : string.IsNullOrEmpty(_binding) ? Theme.Muted : Theme.Text;
-        Theme.DrawCaps(g, Text, Font, r, color);
+        Theme.DrawCaps(g, Text, Font, new Rectangle(1, 1, Width - 2, Height - 2), color); // inside the 1 px border
         if (Theme.ShowsFocus(this) && !_capturing) Theme.DrawFocus(g, ClientRectangle);
+    }
+
+    // Keep the height one that centres the text exactly inside the border (it may grow by a pixel).
+    protected override void SetBoundsCore(int x, int y, int width, int height, BoundsSpecified specified)
+    {
+        if ((specified & BoundsSpecified.Height) != 0) height = Theme.FitCaps(Font, height, 2);
+        base.SetBoundsCore(x, y, width, height, specified);
+    }
+
+    protected override void OnFontChanged(EventArgs e)
+    {
+        base.OnFontChanged(e);
+        Height = Theme.FitCaps(Font, Height, 2);
     }
 
     protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); Invalidate(); }
@@ -786,15 +935,21 @@ internal sealed class HdTabs : Panel
     }
 }
 
+/// <summary>Small shapes drawn beside button text (see <see cref="Theme.DrawIcon"/>).</summary>
+internal enum ButtonIcon { None, Cog, Play, Up }
+
 /// <summary>Outlined yellow button that fills on hover; a thick border shows keyboard focus.</summary>
 internal sealed class HdButton : Button
 {
     private readonly bool _primary;
+    private readonly ButtonIcon _icon;
 
     /// <param name="primary">Solid yellow (the recommended choice) instead of outlined.</param>
-    public HdButton(string text, bool primary = false)
+    /// <param name="icon">Shape drawn before the text.</param>
+    public HdButton(string text, bool primary = false, ButtonIcon icon = ButtonIcon.None)
     {
         _primary = primary;
+        _icon = icon;
         Text = text.ToUpperInvariant();
         AccessibleName = text; // read naturally, not as capitals
         Font = Theme.Heading;
@@ -815,6 +970,21 @@ internal sealed class HdButton : Button
     protected override bool ShowFocusCues => false; // we draw our own, clearer one
     protected override void OnChangeUICues(UICuesEventArgs e) { base.OnChangeUICues(e); Invalidate(); }
 
+    private static int IconGap(int capHeight) => Math.Max(4, (int)Math.Round(capHeight * 0.6));
+
+    /// <summary>Room for the icon, and a height that centres the capitals exactly (it may grow by a pixel).</summary>
+    public override Size GetPreferredSize(Size proposedSize)
+    {
+        var size = base.GetPreferredSize(proposedSize);
+        if (_icon != ButtonIcon.None)
+        {
+            int cap = Theme.Ink(Font).Height;
+            size.Width += Theme.IconWidth(_icon, cap) + IconGap(cap);
+        }
+        size.Height = Theme.FitCaps(Font, size.Height, 2);
+        return size;
+    }
+
     private bool _hover, _pressed;
 
     // Drawn by hand (rather than base.OnPaint) so the capitals can be centred properly; see Theme.DrawCaps.
@@ -824,8 +994,18 @@ internal sealed class HdButton : Button
         var back = _pressed ? FlatAppearance.MouseDownBackColor : _hover ? FlatAppearance.MouseOverBackColor : BackColor;
         g.Clear(back);
         using (var border = new Pen(FlatAppearance.BorderColor)) g.DrawRectangle(border, 0, 0, Width - 1, Height - 1);
-        var r = new Rectangle(Padding.Left, Padding.Top, Width - Padding.Horizontal, Height - Padding.Vertical);
-        Theme.DrawCaps(g, Text, Font, r, ForeColor);
+        // Padding sets the width; vertically, centre inside the 1 px border (scaled padding can split unevenly).
+        var r = new Rectangle(Padding.Left, 1, Width - Padding.Horizontal, Height - 2);
+        if (_icon == ButtonIcon.None) Theme.DrawCaps(g, Text, Font, r, ForeColor);
+        else
+        {
+            int cap = Theme.Ink(Font).Height, iconW = Theme.IconWidth(_icon, cap), gap = IconGap(cap);
+            int textW = TextRenderer.MeasureText(g, Text, Font, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix).Width;
+            int x = r.Left + (r.Width - (iconW + gap + textW)) / 2;
+            Theme.DrawIcon(g, _icon, x, Theme.CapsTop(Font, r), cap, ForeColor);
+            Theme.DrawCaps(g, Text, Font, new Rectangle(x + iconW + gap, r.Top, textW + 4, r.Height), ForeColor,
+                TextFormatFlags.Left | TextFormatFlags.NoPadding);
+        }
         // On the solid yellow primary button a light ring would vanish, so use the dark text colour there.
         if (Theme.ShowsFocus(this)) Theme.DrawFocus(g, ClientRectangle, _primary ? Theme.OnAccent : null);
     }
