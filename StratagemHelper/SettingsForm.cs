@@ -28,7 +28,7 @@ internal sealed class SettingsForm : Form
     private readonly HdRadio[] _sizeRadios = { new("100%"), new("125%"), new("150%"), new("200%") };
     private static readonly int[] Sizes = { 100, 125, 150, 200 };
     private readonly HdButton _restartBtn = new("Restart now") { Visible = false };
-    private readonly HdBindBox[] _dirBinds = Bindings.DirectionNames.Select(n => new HdBindBox { Label = $"Stratagem {n.ToLowerInvariant()} key", Width = 104 }).ToArray();
+    private readonly HdBindBox[] _dirBinds = Bindings.DirectionNames.Select(n => new HdBindBox { Label = $"Stratagem {n.ToLowerInvariant()} key" }).ToArray();
     private readonly HdButton _wasdBtn = new(Bindings.WasdName);
     private readonly HdButton _arrowBtn = new("Arrow keys");
     private readonly NumericUpDown _holdNum = new() { Minimum = 10, Maximum = 200, Width = 64 };
@@ -184,10 +184,10 @@ internal sealed class SettingsForm : Form
         root.Controls.Add(header);
         root.Controls.Add(new HazardStripe { Width = W, Margin = Padding.Empty });
 
-        _tabs = new HdTabs("General", "Controls", "Voice", "Stratagems", "Updates") { Width = W, Margin = Padding.Empty };
+        _tabs = new HdTabs("General", "Controls", "Call-ins", "Stratagems", "Updates") { Width = W, Margin = Padding.Empty };
         root.Controls.Add(_tabs);
 
-        var pages = new[] { BuildGeneral(), BuildControls(), BuildVoice(), BuildStratagems(), BuildUpdates() };
+        var pages = new[] { BuildGeneral(), BuildControls(), BuildCallIns(), BuildStratagems(), BuildUpdates() };
         // Fixed-size host sized to the tallest page so the window doesn't jump between tabs.
         var host = new Panel { Margin = Padding.Empty, BackColor = Theme.Bg };
         int maxH = 0;
@@ -276,54 +276,9 @@ internal sealed class SettingsForm : Form
         page.Controls.Add(sizeRow);
         page.Controls.Add(Hint("Changes after a restart. Windows display scaling works too.", 2));
 
-        page.Controls.Add(new SectionHeader("Input") { Width = Inner, Margin = new Padding(0, 16, 0, 4) });
-        page.Controls.Add(Hint("The keys the game uses for stratagem directions. Change them if you've changed them in the game's controls.", 0));
-        // Up / Down on the first row, Left / Right on the second.
-        var dirGrid = new TableLayoutPanel { AutoSize = true, ColumnCount = 4, Margin = new Padding(0, 6, 0, 0), Padding = Padding.Empty };
-        for (int i = 0; i < 4; i++)
-        {
-            int col = i % 2 == 0 ? 0 : 2, row = i / 2;
-            // Same columns as the key hold / key gap row below.
-            var label = GridLabel(Bindings.DirectionNames[i].ToUpperInvariant());
-            label.Width = col == 0 ? 110 : 80;
-            if (col > 0) label.Margin = new Padding(6, 2, 0, 2);
-            dirGrid.Controls.Add(label, col, row);
-            _dirBinds[i].Margin = new Padding(0, 2, 0, 2);
-            dirGrid.Controls.Add(_dirBinds[i], col + 1, row);
-            WireDirection(_dirBinds[i], i);
-        }
-        page.Controls.Add(dirGrid);
-        var presetRow = Row(4);
-        var resetLabel = Theme.MutedLabel("RESET TO", 110);
-        resetLabel.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left; // centred on the buttons
-        presetRow.Controls.Add(resetLabel);
-        _wasdBtn.Margin = new Padding(0, 0, 10, 0);
-        _arrowBtn.Margin = Padding.Empty;
-        _wasdBtn.AccessibleName = $"Use {Bindings.WasdName} for stratagem directions";
-        _arrowBtn.AccessibleName = "Use the arrow keys for stratagem directions";
-        _wasdBtn.Click += (_, _) => SetDirections(Bindings.WasdDirections);
-        _arrowBtn.Click += (_, _) => SetDirections(Bindings.ArrowDirections);
-        presetRow.Controls.Add(_wasdBtn);
-        presetRow.Controls.Add(_arrowBtn);
-        page.Controls.Add(presetRow);
-
-        var timingRow = Row(4);
-        timingRow.Controls.Add(Theme.MutedLabel("KEY HOLD", 110));
-        Theme.StyleNumber(_holdNum, "Key hold, in milliseconds");
-        timingRow.Controls.Add(_holdNum);
-        timingRow.Controls.Add(Theme.MutedLabel("MS", 40));
-        timingRow.Controls.Add(Theme.MutedLabel("KEY GAP", 80));
-        Theme.StyleNumber(_gapNum, "Gap between keys, in milliseconds");
-        timingRow.Controls.Add(_gapNum);
-        timingRow.Controls.Add(Theme.MutedLabel("MS", 40));
-        page.Controls.Add(timingRow);
-        page.Controls.Add(Hint("If the game misses inputs or picks the wrong stratagem, turn these up a little."));
-
         _enabledBox.CheckedChanged += (_, _) => { if (!_loading) HotkeysEnabledChanged?.Invoke(_enabledBox.Checked); };
         _overlayBox.CheckedChanged += (_, _) => Change(() => _settings.ShowOverlay = _overlayBox.Checked);
         _soundBox.CheckedChanged += (_, _) => Change(() => _settings.SoundCues = _soundBox.Checked);
-        _holdNum.ValueChanged += (_, _) => Change(() => _settings.KeyHoldMs = (int)_holdNum.Value);
-        _gapNum.ValueChanged += (_, _) => Change(() => _settings.KeyGapMs = (int)_gapNum.Value);
         _startupBox.CheckedChanged += (_, _) =>
         {
             if (_loading) return;
@@ -341,6 +296,75 @@ internal sealed class SettingsForm : Form
     }
 
     private Control BuildControls()
+    {
+        var page = Page();
+        page.Controls.Add(new SectionHeader("Stratagem menu") { Width = Inner, Margin = new Padding(0, 0, 0, 4) });
+        page.Controls.Add(Hint("The key that opens the stratagem menu in the game (hold, not toggle). Change it if you've changed it there.", 0));
+        var menuGrid = new TableLayoutPanel { AutoSize = true, ColumnCount = 4, Margin = new Padding(0, 6, 0, 0) };
+        menuGrid.Controls.Add(GridLabel("MENU KEY"), 0, 0);
+        _menuKeyBind.Margin = new Padding(0, 2, 40, 2);
+        menuGrid.Controls.Add(_menuKeyBind, 1, 0);
+        menuGrid.Controls.Add(GridLabel("SCAN"), 0, 1);
+        _scanHotkeyBind.Margin = new Padding(0, 2, 40, 2);
+        menuGrid.Controls.Add(_scanHotkeyBind, 1, 1);
+        menuGrid.Controls.Add(GridLabel("OVERLAY"), 2, 1);
+        _overlayHotkeyBind.Margin = new Padding(0, 2, 0, 2);
+        menuGrid.Controls.Add(_overlayHotkeyBind, 3, 1);
+        page.Controls.Add(menuGrid);
+        WireMenuKey();
+        WireHotkey(_scanHotkeyBind, scan: true);
+        WireHotkey(_overlayHotkeyBind, scan: false);
+        page.Controls.Add(KeyHint(() => $"Hold {MenuName} + 1–9 to call in", 6));
+        page.Controls.Add(KeyHint(() => $"Hold {MenuName} + {Bindings.Name(_settings.ScanHotkey)} to scan your loadout", 2));
+        page.Controls.Add(KeyHint(() => $"{MenuName} + {Bindings.Name(_settings.OverlayHotkey)} hides or shows the overlay", 2));
+
+        page.Controls.Add(new SectionHeader("Stratagem directions") { Width = Inner, Margin = new Padding(0, 16, 0, 4) });
+        page.Controls.Add(Hint("The keys the game uses for stratagem directions. Change them if you've changed them in the game's controls.", 0));
+        // Up / Down on the first row, Left / Right on the second.
+        var dirGrid = new TableLayoutPanel { AutoSize = true, ColumnCount = 4, Margin = new Padding(0, 6, 0, 0), Padding = Padding.Empty };
+        for (int i = 0; i < 4; i++)
+        {
+            int col = i % 2 == 0 ? 0 : 2, row = i / 2;
+            // Same columns as the menu key grid above.
+            dirGrid.Controls.Add(GridLabel(Bindings.DirectionNames[i].ToUpperInvariant()), col, row);
+            _dirBinds[i].Margin = new Padding(0, 2, col == 0 ? 40 : 0, 2);
+            dirGrid.Controls.Add(_dirBinds[i], col + 1, row);
+            WireDirection(_dirBinds[i], i);
+        }
+        page.Controls.Add(dirGrid);
+        var presetRow = Row(4);
+        var resetLabel = Theme.MutedLabel("RESET TO", 70);
+        resetLabel.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left; // centred on the buttons
+        presetRow.Controls.Add(resetLabel);
+        _wasdBtn.Margin = new Padding(0, 0, 10, 0);
+        _arrowBtn.Margin = Padding.Empty;
+        _wasdBtn.AccessibleName = $"Use {Bindings.WasdName} for stratagem directions";
+        _arrowBtn.AccessibleName = "Use the arrow keys for stratagem directions";
+        _wasdBtn.Click += (_, _) => SetDirections(Bindings.WasdDirections);
+        _arrowBtn.Click += (_, _) => SetDirections(Bindings.ArrowDirections);
+        presetRow.Controls.Add(_wasdBtn);
+        presetRow.Controls.Add(_arrowBtn);
+        page.Controls.Add(presetRow);
+
+        var timingRow = Row(10);
+        timingRow.Controls.Add(Theme.MutedLabel("KEY HOLD", 110));
+        Theme.StyleNumber(_holdNum, "Key hold, in milliseconds");
+        timingRow.Controls.Add(_holdNum);
+        timingRow.Controls.Add(Theme.MutedLabel("MS", 40));
+        timingRow.Controls.Add(Theme.MutedLabel("KEY GAP", 80));
+        Theme.StyleNumber(_gapNum, "Gap between keys, in milliseconds");
+        timingRow.Controls.Add(_gapNum);
+        timingRow.Controls.Add(Theme.MutedLabel("MS", 40));
+        page.Controls.Add(timingRow);
+        page.Controls.Add(Hint("If the game misses inputs or picks the wrong stratagem, turn these up a little."));
+
+        _holdNum.ValueChanged += (_, _) => Change(() => _settings.KeyHoldMs = (int)_holdNum.Value);
+        _gapNum.ValueChanged += (_, _) => Change(() => _settings.KeyGapMs = (int)_gapNum.Value);
+        return page;
+    }
+
+    /// <summary>Ways to call in without tapping the code: one-touch keys and voice.</summary>
+    private Control BuildCallIns()
     {
         var page = Page();
         page.Controls.Add(new SectionHeader("One-touch call-ins") { Width = Inner, Margin = new Padding(0, 0, 0, 4) });
@@ -375,34 +399,9 @@ internal sealed class SettingsForm : Form
         page.Controls.Add(delayRow);
         page.Controls.Add(Hint("If one-touch misses the first arrow, turn this up."));
 
-        page.Controls.Add(new SectionHeader("Stratagem menu") { Width = Inner, Margin = new Padding(0, 16, 0, 4) });
-        page.Controls.Add(Hint("The key that opens the stratagem menu in the game (hold, not toggle). Change it if you've changed it there.", 0));
-        var menuGrid = new TableLayoutPanel { AutoSize = true, ColumnCount = 4, Margin = new Padding(0, 6, 0, 0) };
-        menuGrid.Controls.Add(GridLabel("MENU KEY"), 0, 0);
-        _menuKeyBind.Margin = new Padding(0, 2, 40, 2);
-        menuGrid.Controls.Add(_menuKeyBind, 1, 0);
-        menuGrid.Controls.Add(GridLabel("SCAN"), 0, 1);
-        _scanHotkeyBind.Margin = new Padding(0, 2, 40, 2);
-        menuGrid.Controls.Add(_scanHotkeyBind, 1, 1);
-        menuGrid.Controls.Add(GridLabel("OVERLAY"), 2, 1);
-        _overlayHotkeyBind.Margin = new Padding(0, 2, 0, 2);
-        menuGrid.Controls.Add(_overlayHotkeyBind, 3, 1);
-        page.Controls.Add(menuGrid);
-        WireMenuKey();
-        WireHotkey(_scanHotkeyBind, scan: true);
-        WireHotkey(_overlayHotkeyBind, scan: false);
-        page.Controls.Add(KeyHint(() => $"Hold {MenuName} + 1–9 to call in", 6));
-        page.Controls.Add(KeyHint(() => $"Hold {MenuName} + {Bindings.Name(_settings.ScanHotkey)} to scan your loadout", 2));
-        page.Controls.Add(KeyHint(() => $"{MenuName} + {Bindings.Name(_settings.OverlayHotkey)} hides or shows the overlay", 2));
-
         _menuDelayNum.ValueChanged += (_, _) => Change(() => _settings.MenuOpenDelayMs = (int)_menuDelayNum.Value);
-        return page;
-    }
 
-    private Control BuildVoice()
-    {
-        var page = Page();
-        page.Controls.Add(new SectionHeader("Voice call-ins") { Width = Inner, Margin = new Padding(0, 0, 0, 4) });
+        page.Controls.Add(new SectionHeader("Voice call-ins") { Width = Inner, Margin = new Padding(0, 16, 0, 4) });
         page.Controls.Add(Hint("Say “call in” and then a stratagem, like “call in orbital laser”, or a slot, like “call in slot three”.", 0));
 
         var modeRow = Row(10);
