@@ -22,9 +22,14 @@ internal static class Startup
         else key.DeleteValue(RunValue, throwOnMissingValue: false);
     }
 
-    /// <summary>If startup is on, make sure it points at this exe (in case the app was moved).</summary>
+    /// <summary>
+    /// If startup is on, make sure it points at this exe (in case the app was moved). Only the app itself does this:
+    /// a tool that hosts its windows (e.g. tools/OcrTest taking screenshots) must not take over the startup entry.
+    /// </summary>
     public static void RefreshPath()
     {
+        if (!string.Equals(Path.GetFileNameWithoutExtension(Environment.ProcessPath), "StratagemHelper", StringComparison.OrdinalIgnoreCase))
+            return;
         try
         {
             using var key = Registry.CurrentUser.CreateSubKey(RunKey);
