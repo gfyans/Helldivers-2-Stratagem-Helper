@@ -5,9 +5,9 @@ using static StratagemHelper.Native;
 namespace StratagemHelper;
 
 /// <summary>
-/// Global low-level keyboard + mouse hooks. Handles Ctrl+1..9 / Ctrl+C / Ctrl+V, one-touch bindings (keys, middle and
-/// side mouse buttons, pedals), push-to-talk state, binding capture for the settings UI, and physical Ctrl
-/// up/down events.
+/// Global low-level keyboard + mouse hooks. Handles menu key + 1..9 / C / V (Ctrl by default), one-touch bindings (keys, middle and
+/// side mouse buttons, pedals), push-to-talk state, binding capture for the settings UI, and the player pressing
+/// and releasing the game's stratagem menu key.
 /// <para>
 /// Windows makes every keystroke and mouse event in the whole system wait for a low-level hook to return, so the
 /// hooks live on their own high-priority thread that does nothing else: whatever the UI thread is busy with (the
@@ -15,7 +15,7 @@ namespace StratagemHelper;
 /// while something is bound to a mouse button, so mouse movement normally doesn't pass through this app at all.
 /// </para>
 /// <para>
-/// Threading: <see cref="Capture"/>, <see cref="CtrlDown"/>, <see cref="CtrlUp"/> and
+/// Threading: <see cref="Capture"/>, <see cref="MenuDown"/>, <see cref="MenuUp"/> and
 /// <see cref="OverlayToggleRequested"/> are posted to the UI thread. <see cref="ShouldHandle"/>,
 /// <see cref="DetectRequested"/> and the <see cref="Bindings"/> actions run on the hook thread and must return
 /// immediately (start a task for real work). <see cref="SlotTriggered"/> runs on the thread pool.
@@ -27,7 +27,7 @@ internal sealed class KeyboardHook : IDisposable
     private readonly LowLevelKeyboardProc _mouseProc;
     private IntPtr _kbHook, _mouseHook;              // hook thread only
     private readonly HashSet<string> _swallowed = new(); // hook thread only: ids whose key-up must also be swallowed
-    private bool _ctrlHeld;                          // hook thread only
+    private bool _menuHeld;                          // hook thread only
 
     private readonly SynchronizationContext _ui;
     private readonly Thread _thread;
@@ -40,13 +40,21 @@ internal sealed class KeyboardHook : IDisposable
     /// <summary>Return true if this slot (1-9) has a stratagem assigned and should be handled.</summary>
     public Func<int, bool> ShouldHandle { get; set; } = _ => false;
     public Action<int>? SlotTriggered { get; set; }
-    /// <summary>Ctrl+C while the game is focused; C is swallowed.</summary>
+    /// <summary>Menu key + <see cref="ScanVk"/> while the game is focused; the letter is swallowed.</summary>
     public Action? DetectRequested { get; set; }
-    /// <summary>Ctrl+V while the game is focused; V is swallowed.</summary>
+    /// <summary>Menu key + <see cref="OverlayVk"/> while the game is focused; the letter is swallowed.</summary>
     public Action? OverlayToggleRequested { get; set; }
-    /// <summary>Physical Ctrl pressed / released while the game is focused (for the number labels).</summary>
-    public Action? CtrlDown { get; set; }
-    public Action? CtrlUp { get; set; }
+    /// <summary>The player pressed / released the menu key while the game is focused (the menu opens / closes).</summary>
+    public Action? MenuDown { get; set; }
+    public Action? MenuUp { get; set; }
+
+    private volatile HeldKey _menuKey = HeldKey.Default;
+    /// <summary>The game's stratagem menu key. Never swallowed: the game needs it.</summary>
+    public HeldKey MenuKey
+    {
+        get => _menuKey;
+        set { _menuKey = value; RequestMouseRefresh(); }
+    }
 
     private volatile IReadOnlyDictionary<string, Action> _bindings = new Dictionary<string, Action>();
     /// <summary>One-touch bindings: id -> action. Swallowed while the game is focused.</summary>
@@ -80,8 +88,8 @@ internal sealed class KeyboardHook : IDisposable
 
     public volatile bool Enabled = true;
 
-    public const uint DetectVk = 0x43;        // C
-    public const uint OverlayToggleVk = 0x56; // V
+    /// <summary>Virtual keys pressed with the menu key held: scan the loadout (C) and hide / show the overlay (V).</summary>
+    public volatile uint ScanVk = 0x43, OverlayVk = 0x56;
 
     public KeyboardHook()
     {
@@ -195,6 +203,7 @@ internal sealed class KeyboardHook : IDisposable
     private void RefreshMouseHook()
     {
         bool need = Capture != null
+                    || _menuKey.MouseButton != 0
                     || IsMouse(PttBinding)
                     || Bindings.Keys.Any(IsMouse)
                     || _swallowed.Any(IsMouse); // keep it until a swallowed button's release has been swallowed too
@@ -229,12 +238,17 @@ internal sealed class KeyboardHook : IDisposable
             return true;
         }
 
+        var menu = _menuKey;
+        bool isMenu = kbInfo != IntPtr.Zero
+            ? menu.IsKey((uint)Marshal.ReadInt32(kbInfo, 4), ((uint)Marshal.ReadInt32(kbInfo, 8) & LLKHF_EXTENDED) != 0)
+            : menu.MouseButton != 0 && id == menu.Id;
+
         if (!down)
         {
-            if (vk is 0x11 or 0xA2 or 0xA3 && _ctrlHeld)
+            if (isMenu && _menuHeld)
             {
-                _ctrlHeld = false;
-                if (CtrlUp is { } ctrlUp) Post(ctrlUp);
+                _menuHeld = false;
+                if (MenuUp is { } menuUp) Post(menuUp);
             }
             if (id == PttBinding && PttHeld)
             {
@@ -249,12 +263,12 @@ internal sealed class KeyboardHook : IDisposable
         // Key auto-repeat of something we're already swallowing.
         if (_swallowed.Contains(id)) return true;
 
-        if (vk is 0x11 or 0xA2 or 0xA3)
+        if (isMenu)
         {
-            if (!_ctrlHeld)
+            if (!_menuHeld)
             {
-                _ctrlHeld = true;
-                if (Enabled && GameWindow.IsForeground() && CtrlDown is { } ctrlDown) Post(ctrlDown);
+                _menuHeld = true;
+                if (Enabled && GameWindow.IsForeground() && MenuDown is { } menuDown) Post(menuDown);
             }
             return false;
         }
@@ -270,24 +284,24 @@ internal sealed class KeyboardHook : IDisposable
         }
 
         if (vk == 0 || !Enabled) return false;
-        if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) == 0) return false;
+        if (!menu.IsDown) return false;
 
-        // Ctrl+C: read the loadout from the stratagem menu. Ctrl+V: show/hide the loadout overlay.
-        // These are copy/paste everywhere else; like every hotkey here they only act while the game is focused.
-        if (vk == DetectVk && DetectRequested != null && GameWindow.IsForeground())
+        // Menu key + C: read the loadout from the stratagem menu. Menu key + V: show/hide the loadout overlay.
+        // With Ctrl these are copy/paste everywhere else; like every hotkey here they only act while the game is focused.
+        if (vk == ScanVk && DetectRequested != null && GameWindow.IsForeground())
         {
             _swallowed.Add(id);
             DetectRequested();
             return true;
         }
-        if (vk == OverlayToggleVk && OverlayToggleRequested is { } toggle && GameWindow.IsForeground())
+        if (vk == OverlayVk && OverlayToggleRequested is { } toggle && GameWindow.IsForeground())
         {
             _swallowed.Add(id);
             Post(toggle);
             return true;
         }
 
-        // Ctrl+1..9 (top row).
+        // Menu key + 1..9 (top row).
         if (vk >= 0x31 && vk <= 0x39)
         {
             int slot = (int)(vk - 0x30);

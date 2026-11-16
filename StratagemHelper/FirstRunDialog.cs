@@ -12,8 +12,9 @@ internal sealed class FirstRunDialog : Form
     /// <summary>The player says they've moved stratagem inputs to the arrow keys in the game.</summary>
     public bool UseArrowKeys => _arrowBox.Checked;
 
-    public FirstRunDialog(Icon icon, bool useArrowKeys)
+    public FirstRunDialog(Icon icon, bool useArrowKeys, Settings settings)
     {
+        string menu = Bindings.Name(settings.MenuKey);
         _arrowBox.Checked = useArrowKeys;
         Theme.PrepareForm(this);
         const int W = 500, Pad = 22, Inner = W - Pad * 2;
@@ -84,8 +85,8 @@ internal sealed class FirstRunDialog : Form
         body.Controls.Add(new SectionHeader("Quick start") { Width = Inner, Margin = new Padding(0, 0, 0, 6) });
         foreach (var line in new[]
         {
-            $"1.  In a mission, hold {Bindings.Ctrl} and press C to grab your loadout.",
-            $"2.  Call in with {Bindings.Ctrl} + 1–9, or just Numpad 1–9.",
+            $"1.  In a mission, hold {menu} and press {Bindings.Name(settings.ScanHotkey)} to grab your loadout.",
+            $"2.  Call in with {menu} + 1–9, or just Numpad 1–9.",
             "3.  Or turn on voice and say “call in” and a stratagem.",
         })
             body.Controls.Add(new Label { Text = line, AutoSize = true, MaximumSize = new Size(Inner, 0), ForeColor = Theme.Text, Margin = new Padding(0, 0, 0, 3) });

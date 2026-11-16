@@ -37,6 +37,11 @@ internal sealed class SettingsForm : Form
     // Controls
     private readonly HdBindBox[] _slotBinds = Enumerable.Range(0, 9).Select(i => new HdBindBox { Label = $"Slot {i + 1} key" }).ToArray();
     private readonly HdBindBox _scanBind = new() { Label = "Scan key" };
+    private readonly HdBindBox _menuKeyBind = new() { Label = "Stratagem menu key" };
+    private readonly HdBindBox _scanHotkeyBind = new() { Label = "Scan letter" };
+    private readonly HdBindBox _overlayHotkeyBind = new() { Label = "Overlay letter" };
+    // Hints that name the menu key / letters, rewritten when those change.
+    private readonly List<(Label label, Func<string> text)> _keyHints = new();
     private readonly NumericUpDown _menuDelayNum = new() { Minimum = 20, Maximum = 500, Width = 64 };
 
     // Voice
@@ -96,6 +101,7 @@ internal sealed class SettingsForm : Form
         int sizeIdx = Array.IndexOf(Sizes, settings.TextSize);
         _sizeRadios[sizeIdx < 0 ? 0 : sizeIdx].Checked = true;
         ShowDirections();
+        ShowMenuKeys();
         _holdNum.Value = Math.Clamp(settings.KeyHoldMs, 10, 200);
         _gapNum.Value = Math.Clamp(settings.KeyGapMs, 10, 200);
         for (int i = 0; i < 9; i++) _slotBinds[i].Binding = settings.SlotBindings.ElementAtOrDefault(i);
@@ -219,7 +225,7 @@ internal sealed class SettingsForm : Form
         page.Controls.Add(new SectionHeader("Overlay & sound") { Width = Inner, Margin = new Padding(0, 16, 0, 4) });
         _overlayBox.Margin = new Padding(2, 1, 0, 0);
         page.Controls.Add(_overlayBox);
-        page.Controls.Add(Hint($"Press {Bindings.Ctrl} + V in game to hide it. Needs borderless or windowed mode.", 0, Indent));
+        page.Controls.Add(KeyHint(() => $"Press {MenuName} + {Bindings.Name(_settings.OverlayHotkey)} in game to hide it. Needs borderless or windowed mode.", 0, Indent));
 
         // Opacity slider: arrow keys / Page Up / Page Down work too; screen readers announce it as "Overlay opacity".
         var opacityRow = Row(4);
@@ -338,7 +344,7 @@ internal sealed class SettingsForm : Form
     {
         var page = Page();
         page.Controls.Add(new SectionHeader("One-touch call-ins") { Width = Inner, Margin = new Padding(0, 0, 0, 4) });
-        page.Controls.Add(Hint($"One press puts in the whole code, no {Bindings.Ctrl} needed. Use the numpad, a mouse side button or a foot pedal.", 0));
+        page.Controls.Add(KeyHint(() => $"One press puts in the whole code, no {MenuName} needed. Use the numpad, a mouse side button or a foot pedal.", 0));
 
         var grid = new TableLayoutPanel { AutoSize = true, ColumnCount = 4, Margin = new Padding(0, 10, 0, 0) };
         // Tab order runs down the first column (slots 1-5), then the second (6-9, scan).
@@ -369,10 +375,25 @@ internal sealed class SettingsForm : Form
         page.Controls.Add(delayRow);
         page.Controls.Add(Hint("If one-touch misses the first arrow, turn this up."));
 
-        page.Controls.Add(new SectionHeader("Always available") { Width = Inner, Margin = new Padding(0, 16, 0, 4) });
-        page.Controls.Add(Hint($"Hold {Bindings.Ctrl} + 1–9 to call in", 0));
-        page.Controls.Add(Hint($"Hold {Bindings.Ctrl} + C to scan your loadout", 2));
-        page.Controls.Add(Hint($"{Bindings.Ctrl} + V hides or shows the overlay", 2));
+        page.Controls.Add(new SectionHeader("Stratagem menu") { Width = Inner, Margin = new Padding(0, 16, 0, 4) });
+        page.Controls.Add(Hint("The key that opens the stratagem menu in the game (hold, not toggle). Change it if you've changed it there.", 0));
+        var menuGrid = new TableLayoutPanel { AutoSize = true, ColumnCount = 4, Margin = new Padding(0, 6, 0, 0) };
+        menuGrid.Controls.Add(GridLabel("MENU KEY"), 0, 0);
+        _menuKeyBind.Margin = new Padding(0, 2, 40, 2);
+        menuGrid.Controls.Add(_menuKeyBind, 1, 0);
+        menuGrid.Controls.Add(GridLabel("SCAN"), 0, 1);
+        _scanHotkeyBind.Margin = new Padding(0, 2, 40, 2);
+        menuGrid.Controls.Add(_scanHotkeyBind, 1, 1);
+        menuGrid.Controls.Add(GridLabel("OVERLAY"), 2, 1);
+        _overlayHotkeyBind.Margin = new Padding(0, 2, 0, 2);
+        menuGrid.Controls.Add(_overlayHotkeyBind, 3, 1);
+        page.Controls.Add(menuGrid);
+        WireMenuKey();
+        WireHotkey(_scanHotkeyBind, scan: true);
+        WireHotkey(_overlayHotkeyBind, scan: false);
+        page.Controls.Add(KeyHint(() => $"Hold {MenuName} + 1–9 to call in", 6));
+        page.Controls.Add(KeyHint(() => $"Hold {MenuName} + {Bindings.Name(_settings.ScanHotkey)} to scan your loadout", 2));
+        page.Controls.Add(KeyHint(() => $"{MenuName} + {Bindings.Name(_settings.OverlayHotkey)} hides or shows the overlay", 2));
 
         _menuDelayNum.ValueChanged += (_, _) => Change(() => _settings.MenuOpenDelayMs = (int)_menuDelayNum.Value);
         return page;
@@ -504,9 +525,88 @@ internal sealed class SettingsForm : Form
             Status?.Invoke("That can't be used for stratagem directions", Theme.Danger);
             return;
         }
+        if (value == _settings.MenuKey)
+        {
+            Status?.Invoke($"{Bindings.Name(value)} is the stratagem menu key", Theme.Danger);
+            return;
+        }
         var keys = (_settings.DirectionKeys ?? Bindings.WasdDirections).ToArray();
         keys[dir] = value;
         SetDirections(keys);
+    });
+
+    private string MenuName => Bindings.Name(_settings.MenuKey);
+
+    /// <summary>A hint whose text names the player's keys; <see cref="RefreshKeyHints"/> rewrites it.</summary>
+    private Label KeyHint(Func<string> text, int top = 4, int indent = 0)
+    {
+        var l = Hint(text(), top, indent);
+        _keyHints.Add((l, text));
+        return l;
+    }
+
+    private void RefreshKeyHints()
+    {
+        foreach (var (label, text) in _keyHints) label.Text = text();
+    }
+
+    private void ShowMenuKeys()
+    {
+        _menuKeyBind.Binding = _settings.MenuKey;
+        _scanHotkeyBind.Binding = _settings.ScanHotkey;
+        _overlayHotkeyBind.Binding = _settings.OverlayHotkey;
+        RefreshKeyHints();
+    }
+
+    /// <summary>The physical key behind a binding id, to spot two settings using the same key.</summary>
+    private static string? Physical(string? id) =>
+        Bindings.TryGetScan(id, out var sc, out var ext) ? Bindings.Scan(sc, ext) : id;
+
+    /// <summary>
+    /// The game's menu key: a keyboard key (stored as the physical key, since the app presses it itself) or the
+    /// middle / side mouse buttons. Backspace / Delete put back Ctrl.
+    /// </summary>
+    private void WireMenuKey() => StartCaptureOnClick(_menuKeyBind, (id, physical) =>
+    {
+        string? value = id is Bindings.Backspace or Bindings.Delete ? Bindings.DefaultMenuKey
+                      : id is "M3" or "M4" or "M5" ? id : physical;
+        if (HeldKey.Parse(value) == null)
+        {
+            Status?.Invoke("That can't be used as the menu key", Theme.Danger);
+            return;
+        }
+        string? clash = (_settings.DirectionKeys ?? Bindings.WasdDirections).Contains(value) ? "a stratagem direction"
+                      : value == Physical(_settings.ScanHotkey) ? "the scan letter"
+                      : value == Physical(_settings.OverlayHotkey) ? "the overlay letter"
+                      : null;
+        if (clash != null)
+        {
+            Status?.Invoke($"{Bindings.Name(value)} is already {clash}", Theme.Danger);
+            return;
+        }
+        Change(() => _settings.MenuKey = value);
+        ShowMenuKeys();
+    });
+
+    /// <summary>A key pressed while holding the menu key. Backspace / Delete put back the default (C / V).</summary>
+    private void WireHotkey(HdBindBox box, bool scan) => StartCaptureOnClick(box, (id, _) =>
+    {
+        string value = id is Bindings.Backspace or Bindings.Delete
+            ? (scan ? Bindings.DefaultScanHotkey : Bindings.DefaultOverlayHotkey)
+            : id;
+        if (!Bindings.IsValidHotkey(value))
+        {
+            Status?.Invoke("That key can't be used here. Pick a letter or another key that isn't 1–9", Theme.Danger);
+            return;
+        }
+        string? other = scan ? _settings.OverlayHotkey : _settings.ScanHotkey;
+        if (value == other || Physical(value) == _settings.MenuKey)
+        {
+            Status?.Invoke($"{Bindings.Name(value)} is already in use", Theme.Danger);
+            return;
+        }
+        Change(() => { if (scan) _settings.ScanHotkey = value; else _settings.OverlayHotkey = value; });
+        ShowMenuKeys();
     });
 
     private void SetDirections(string[] keys)

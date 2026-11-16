@@ -102,7 +102,13 @@ internal static class Native
     public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
     public const uint LLKHF_EXTENDED = 0x01;
+    public const uint MAPVK_VSC_TO_VK_EX = 3;
     public const uint MAPVK_VK_TO_VSC_EX = 4;
+
+    public const uint INPUT_MOUSE = 0;
+    public const uint MOUSEEVENTF_MIDDLEDOWN = 0x0020, MOUSEEVENTF_MIDDLEUP = 0x0040;
+    public const uint MOUSEEVENTF_XDOWN = 0x0080, MOUSEEVENTF_XUP = 0x0100;
+    public const uint XBUTTON1 = 1, XBUTTON2 = 2;
 
     [DllImport("user32.dll")]
     public static extern uint MapVirtualKey(uint uCode, uint uMapType);

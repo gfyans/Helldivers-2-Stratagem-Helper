@@ -28,6 +28,13 @@ public sealed class Settings
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public bool? UseArrowKeys { get; set; }
 
+    /// <summary>The game's stratagem menu key (see <see cref="HeldKey"/>). Default: left Ctrl.</summary>
+    public string? MenuKey { get; set; }
+    /// <summary>Pressed while holding the menu key: read the loadout (default C) / hide or show the overlay (default V).</summary>
+    public string? ScanHotkey { get; set; }
+    public string? OverlayHotkey { get; set; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
     public bool DirectionsAreArrows => DirectionKeys != null && DirectionKeys.SequenceEqual(Bindings.ArrowDirections);
 
     public void Normalize()
@@ -35,6 +42,14 @@ public sealed class Settings
         if (!Bindings.IsValidDirections(DirectionKeys))
             DirectionKeys = (UseArrowKeys == true ? Bindings.ArrowDirections : Bindings.WasdDirections).ToArray();
         UseArrowKeys = null;
+        if (HeldKey.Parse(MenuKey) == null) MenuKey = Bindings.DefaultMenuKey;
+        if (!Bindings.IsValidHotkey(ScanHotkey)) ScanHotkey = Bindings.DefaultScanHotkey;
+        if (!Bindings.IsValidHotkey(OverlayHotkey)) OverlayHotkey = Bindings.DefaultOverlayHotkey;
+        if (ScanHotkey == OverlayHotkey)
+        {
+            ScanHotkey = Bindings.DefaultScanHotkey;
+            OverlayHotkey = Bindings.DefaultOverlayHotkey;
+        }
     }
 
     /// <summary>Check GitHub for new releases (startup + every 12 h) and install them while the game isn't running.</summary>

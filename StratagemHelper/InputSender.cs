@@ -8,17 +8,32 @@ internal static class InputSender
 {
     private static readonly object Busy = new();
 
-    private const ushort SC_LCTRL = 0x1D;
-
-    /// <summary>Holds or releases left Ctrl (opens / closes the stratagem menu).</summary>
-    public static void PressCtrl(bool down) => SendKey(SC_LCTRL, false, keyUp: !down);
+    /// <summary>Holds or releases the game's stratagem menu key (a key, or the middle / side mouse buttons).</summary>
+    public static void PressMenu(HeldKey key, bool down)
+    {
+        if (key.MouseButton == 0)
+        {
+            SendKey(key.Scan, key.Extended, keyUp: !down);
+            return;
+        }
+        uint flags = key.MouseButton == 3
+            ? (down ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP)
+            : (down ? MOUSEEVENTF_XDOWN : MOUSEEVENTF_XUP);
+        uint data = key.MouseButton switch { 4 => XBUTTON1, 5 => XBUTTON2, _ => 0 };
+        var inputs = new[]
+        {
+            new INPUT { type = INPUT_MOUSE, U = new InputUnion { mi = new MOUSEINPUT { dwFlags = flags, mouseData = data } } }
+        };
+        SendInput(1, inputs, Marshal.SizeOf<INPUT>());
+    }
 
     /// <summary>
-    /// Enters a code. With <paramref name="ctrlMenuDelayMs"/> >= 0 the app holds Ctrl itself (one-touch / voice):
-    /// Ctrl down, wait for the menu, code, Ctrl up. Returns false if another sequence was already running.
+    /// Enters a code. With <paramref name="openMenu"/> set the app holds that key itself (one-touch / voice):
+    /// menu key down, wait <paramref name="menuDelayMs"/> for the menu, code, menu key up.
+    /// Returns false if another sequence was already running.
     /// <paramref name="directionKeys"/> are the game's Up, Down, Left, Right keys as binding ids (see <see cref="Bindings"/>).
     /// </summary>
-    public static bool SendSequence(string code, string[] directionKeys, int holdMs, int gapMs, int ctrlMenuDelayMs = -1)
+    public static bool SendSequence(string code, string[] directionKeys, int holdMs, int gapMs, HeldKey? openMenu = null, int menuDelayMs = 0)
     {
         var keys = new (ushort scan, bool extended)[4];
         for (int i = 0; i < 4; i++)
@@ -31,14 +46,13 @@ internal static class InputSender
         // If a sequence is already running (e.g. two hotkeys pressed quickly), drop this one
         // rather than interleaving keystrokes.
         if (!Monitor.TryEnter(Busy)) return false;
-        bool ctrl = ctrlMenuDelayMs >= 0;
         try
         {
             timeBeginPeriod(1);
-            if (ctrl)
+            if (openMenu != null)
             {
-                PressCtrl(true);
-                Thread.Sleep(ctrlMenuDelayMs);
+                PressMenu(openMenu, true);
+                Thread.Sleep(menuDelayMs);
             }
             foreach (char c in code.ToUpperInvariant())
             {
@@ -53,7 +67,7 @@ internal static class InputSender
         }
         finally
         {
-            if (ctrl) PressCtrl(false);
+            if (openMenu != null) PressMenu(openMenu, false);
             timeEndPeriod(1);
             Monitor.Exit(Busy);
         }

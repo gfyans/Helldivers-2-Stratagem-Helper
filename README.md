@@ -116,6 +116,8 @@ The stratagem ends up in your hand, ready to throw. The numbers stay put even if
 
 Ctrl + C and Ctrl + V only do anything while Helldivers 2 is the active window, so copy and paste still work everywhere else.
 
+If you've moved the stratagem menu off Ctrl in the game, set the same key (or mouse button) as **Menu key** in Settings › Controls. You can change the C and V letters there too. The app always shows your own keys.
+
 ---
 
 ## Settings
@@ -124,8 +126,8 @@ Open **Settings** in the app, or right-click the tray icon. Changes take effect 
 
 | Tab | What's there |
 | --- | --- |
-| **General** | Turn hotkeys on or off, start with Windows, the overlay and how see-through it is, sounds, text size, and input timing |
-| **Controls** | Choose your one-key buttons for each slot and for scanning |
+| **General** | Turn hotkeys on or off, start with Windows, the overlay and how see-through it is, sounds, text size, the stratagem direction keys, and input timing |
+| **Controls** | Choose your one-key buttons for each slot and for scanning, the stratagem menu key, and the scan / overlay letters |
 | **Voice** | Turn voice on, pick a talk key, and set how strict it is |
 | **Stratagems** | Edit or reload the stratagem list |
 | **Updates** | Check for updates and turn automatic updates on or off |
@@ -143,12 +145,13 @@ Closing the window sends the app to the system tray. To quit, right-click the tr
 
 | Problem | Try this |
 | --- | --- |
-| "Couldn't read the menu" | Play in borderless or windowed mode with the default HUD size, and hold Ctrl until the menu is fully open. |
+| "Couldn't read the menu" | Play in borderless or windowed mode with the default HUD size, and hold Ctrl (or your menu key) until the menu is fully open. |
 | Nothing happens in game | Check the light at the bottom of the app is green. If it is, try running the app as administrator. |
 | The wrong stratagem comes out, or inputs get missed | Turn up **Key hold** and **Key gap** in Settings › General. |
 | One key misses the first arrow | Turn up **Menu delay** in Settings › Controls. |
 | The numpad doesn't work | Turn Num Lock on, or pick different keys in Settings › Controls. |
 | Voice says it isn't available | Add English speech recognition in Windows (Settings › Time & language › Speech) and check your microphone. |
+| You've moved the stratagem menu off Ctrl | Set **Menu key** in Settings › Controls to the same key or mouse button. It needs the game's menu set to hold, not toggle. |
 | You've moved stratagem inputs to other keys (arrows, ESDF, ...) | Set the **Up**, **Down**, **Left** and **Right** keys in Settings › General to match, or press **Arrow keys**. The defaults are the WASD positions, so AZERTY (ZQSD) and other layouts work without changes. |
 
 ---

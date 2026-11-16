@@ -93,8 +93,8 @@ public sealed class MainForm : Form
             SlotTriggered = OnSlotTriggered,
             DetectRequested = OnDetectRequested,
             OverlayToggleRequested = ToggleOverlay,
-            CtrlDown = OnCtrlDown,
-            CtrlUp = OnCtrlUp,
+            MenuDown = OnMenuDown,
+            MenuUp = OnMenuUp,
         };
         _voice.Heard += OnVoiceHeard;
 
@@ -156,11 +156,12 @@ public sealed class MainForm : Form
             Text = "STRATAGEM HELPER", Font = Theme.Title, ForeColor = Theme.Yellow,
             AutoSize = true, Location = new Point(Pad - 3, 10),
         });
-        header.Controls.Add(new Label
+        _hotkeyLine = new Label
         {
-            Text = "SCAN  ·  {0} + C      CALL IN  ·  {0} + 1–9      OVERLAY  ·  {0} + V".Replace("{0}", Bindings.Ctrl.ToUpperInvariant()),
+            Text = HotkeyLine(compact: false),
             Font = Theme.Small, ForeColor = Theme.Muted, AutoSize = true, Location = new Point(Pad, 50),
-        });
+        };
+        header.Controls.Add(_hotkeyLine);
         var settingsBtn = new HdButton("Settings", icon: ButtonIcon.Cog);
         settingsBtn.Click += (_, _) => OpenSettings();
         header.Controls.Add(settingsBtn);
@@ -172,6 +173,7 @@ public sealed class MainForm : Form
             float k = header.Height / 78f;
             settingsBtn.Location = new Point(header.ClientSize.Width - (int)(Pad * k) - settingsBtn.Width, (int)(16 * k));
             _updateBtn.Location = new Point(settingsBtn.Left - (int)(8 * k) - _updateBtn.Width, settingsBtn.Top);
+            FitHotkeyLine();
         };
         root.Controls.Add(header);
         root.Controls.Add(new HazardStripe { Width = W, Margin = Padding.Empty });
@@ -463,9 +465,32 @@ public sealed class MainForm : Form
         if (_voice.Running) UpdateVoiceInfo(null);
     }
 
+    private Label? _hotkeyLine;
+
+    /// <summary>The header's reminder of the hotkeys, with the player's own keys.</summary>
+    private string HotkeyLine(bool compact)
+    {
+        string menu = Bindings.Display(_settings.MenuKey);
+        string scan = Bindings.Display(_settings.ScanHotkey), overlay = Bindings.Display(_settings.OverlayHotkey);
+        return compact
+            ? $"HOLD {menu}, THEN   SCAN  ·  {scan}      CALL IN  ·  1–9      OVERLAY  ·  {overlay}"
+            : $"SCAN  ·  {menu} + {scan}      CALL IN  ·  {menu} + 1–9      OVERLAY  ·  {menu} + {overlay}";
+    }
+
+    /// <summary>A long menu key name ("MOUSE 4") would run under the header buttons: name it once instead.</summary>
+    private void FitHotkeyLine()
+    {
+        if (_hotkeyLine?.Parent is not { } header) return;
+        int right = header.Controls.OfType<HdButton>().Where(b => b.Visible).Select(b => b.Left).DefaultIfEmpty(header.Width).Min()
+                    - _hotkeyLine.Font.Height / 2;
+        string full = HotkeyLine(compact: false);
+        bool fits = _hotkeyLine.Left + TextRenderer.MeasureText(full, _hotkeyLine.Font).Width <= right;
+        _hotkeyLine.Text = fits ? full : HotkeyLine(compact: true);
+    }
+
     // ---------------- Call-ins ----------------
 
-    /// <summary>Ctrl+1-9: the user is already holding Ctrl.</summary>
+    /// <summary>Menu key + 1-9: the user is already holding the menu key.</summary>
     private void OnSlotTriggered(int slot)
     {
         WaitForScan();
@@ -485,8 +510,9 @@ public sealed class MainForm : Form
             BeginInvoke(() => SetStatus($"Slot {slot} is empty", Theme.Danger));
             return;
         }
-        int delay = CtrlHeld() ? -1 : _settings.MenuOpenDelayMs;
-        if (InputSender.SendSequence(code, _settings.DirectionKeys!, _settings.KeyHoldMs, _settings.KeyGapMs, delay))
+        var menu = _hook.MenuKey;
+        if (InputSender.SendSequence(code, _settings.DirectionKeys!, _settings.KeyHoldMs, _settings.KeyGapMs,
+                                     menu.IsDown ? null : menu, _settings.MenuOpenDelayMs))
             Called(slot, code, via);
     }
 
@@ -522,6 +548,10 @@ public sealed class MainForm : Form
         }
         if (!string.IsNullOrEmpty(_settings.ScanBinding)) map[_settings.ScanBinding] = StartOneTouchScan;
         _hook.Bindings = map;
+        _hook.MenuKey = HeldKey.Parse(_settings.MenuKey) ?? HeldKey.Default;
+        if (Bindings.IsValidHotkey(_settings.ScanHotkey)) _hook.ScanVk = uint.Parse(_settings.ScanHotkey![1..]);
+        if (Bindings.IsValidHotkey(_settings.OverlayHotkey)) _hook.OverlayVk = uint.Parse(_settings.OverlayHotkey![1..]);
+        FitHotkeyLine();
         _hook.PttBinding = _settings.VoiceMode == 1 ? _settings.PttBinding : null;
     }
 
@@ -574,8 +604,8 @@ public sealed class MainForm : Form
     // ---------------- Loadout overlay ----------------
 
     // The game's menu opens in the same corner: move the panel out of its way while Ctrl is held.
-    private void OnCtrlDown() => _overlay.SetMenuOpen(true);
-    private void OnCtrlUp() => _overlay.SetMenuOpen(false);
+    private void OnMenuDown() => _overlay.SetMenuOpen(true);
+    private void OnMenuUp() => _overlay.SetMenuOpen(false);
 
     /// <summary>Ctrl+V in game: hide / show the panel until the next scan. The Settings checkbox turns the feature off entirely.</summary>
     private void ToggleOverlay()
@@ -605,20 +635,21 @@ public sealed class MainForm : Form
         _detectTask = Task.Run(DetectAsync);
     }
 
-    /// <summary>One-touch scan: the app holds Ctrl to open the menu, reads it, then lets go.</summary>
+    /// <summary>One-touch scan: the app holds the menu key to open the menu, reads it, then lets go.</summary>
     private void StartOneTouchScan()
     {
         if (_detectTask is { IsCompleted: false }) return;
         _detectTask = Task.Run(async () =>
         {
-            bool pressed = !CtrlHeld();
-            if (pressed) InputSender.PressCtrl(true);
+            var menu = _hook.MenuKey;
+            bool pressed = !menu.IsDown;
+            if (pressed) InputSender.PressMenu(menu, true);
             try { await DetectAsync(); }
-            finally { if (pressed) InputSender.PressCtrl(false); }
+            finally { if (pressed) InputSender.PressMenu(menu, false); }
         });
     }
 
-    private static bool CtrlHeld() => (Native.GetAsyncKeyState(Native.VK_CONTROL) & 0x8000) != 0;
+    private bool MenuHeld() => _hook.MenuKey.IsDown;
 
     private async Task DetectAsync()
     {
@@ -631,7 +662,7 @@ public sealed class MainForm : Form
             await Task.Delay(250); // in case the scan was triggered before the menu finished drawing
             for (int attempt = 0; attempt < 4; attempt++)
             {
-                if (!CtrlHeld()) break; // menu closed
+                if (!MenuHeld()) break; // menu closed
 
                 var cap = MenuReader.CaptureMenuRegion();
                 if (cap == null) return;
@@ -650,7 +681,7 @@ public sealed class MainForm : Form
                 await Task.Delay(200);
             }
             if (_settings.SoundCues) Sounds.Failure();
-            BeginInvoke(() => SetStatus($"Couldn't read the menu. Hold {Bindings.Ctrl} until it opens, then press C", Theme.Danger));
+            BeginInvoke(() => SetStatus($"Couldn't read the menu. Hold {Bindings.Name(_settings.MenuKey)} until it opens, then press {Bindings.Name(_settings.ScanHotkey)}", Theme.Danger));
         }
         catch (Exception ex)
         {
@@ -807,7 +838,7 @@ public sealed class MainForm : Form
 
         BeginInvoke(() =>
         {
-            using var dlg = new FirstRunDialog(_icon, _settings.DirectionsAreArrows);
+            using var dlg = new FirstRunDialog(_icon, _settings.DirectionsAreArrows, _settings);
             var result = dlg.ShowDialog(this);
             if (dlg.UseArrowKeys != _settings.DirectionsAreArrows)
             {

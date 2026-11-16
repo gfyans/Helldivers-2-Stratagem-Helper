@@ -101,6 +101,8 @@ static class FeatureTests
         fails += SendAndCheck("WASD", Bindings.WasdDirections, "W", "S", "A", "D");
         fails += SendAndCheck("arrows", Bindings.ArrowDirections, "Up", "Down", "Left", "Right");
         fails += SendAndCheck("ESDF (custom)", new[] { "S12", "S20", "S1F", "S21" }, "E", "D", "S", "F");
+        // Another menu key: left Shift wraps the sequence instead of Ctrl.
+        fails += SendAndCheck("WASD, Shift opens the menu", Bindings.WasdDirections, "W", "S", "A", "D", HeldKey.Parse("S2A")!, "ShiftKey");
 
         // Names come from the keyboard layout. These expectations are for QWERTY layouts (this test PC).
         Console.WriteLine("== Key names on this layout");
@@ -116,7 +118,41 @@ static class FeatureTests
             if (!ok) fails++;
             Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} {id} -> {got}{(ok ? "" : " (expected " + expected + ")")}");
         }
-        Console.WriteLine($"  ..   Ctrl -> {Bindings.Ctrl}, defaults -> {Bindings.WasdName}");
+        Console.WriteLine($"  ..   menu key -> {Bindings.Name(Bindings.DefaultMenuKey)}, defaults -> {Bindings.WasdName}");
+
+        // Menu keys: keyboard keys map to the left/right-specific virtual key Windows reports as held.
+        Console.WriteLine("== Menu keys");
+        foreach (var (id, vk) in new (string, int?)[]
+        {
+            ("S1D", 0xA2), ("SE01D", 0xA3), ("S3A", 0x14), ("S2A", 0xA0), ("M3", 0x04), ("M4", 0x05), ("M5", 0x06),
+            ("SE05B", null), ("S01", null), ("K67", null), ("", null), (null!, null),
+        })
+        {
+            var key = HeldKey.Parse(id);
+            bool ok = key?.Vk == vk;
+            if (!ok) fails++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} {id ?? "null"} -> {(key == null ? "rejected" : $"VK {key.Vk:X2}")}");
+        }
+
+        // Scan / overlay letters: keyboard keys only, not 1-9, not modifiers, not both the same.
+        Console.WriteLine("== Menu settings");
+        foreach (var (json, menu, scanKey, overlay) in new[]
+        {
+            ("{}", "S1D", "K67", "K86"),
+            ("{\"MenuKey\":\"M4\",\"ScanHotkey\":\"K71\",\"OverlayHotkey\":\"K72\"}", "M4", "K71", "K72"),
+            ("{\"MenuKey\":\"SE05B\"}", "S1D", "K67", "K86"),
+            ("{\"ScanHotkey\":\"K49\"}", "S1D", "K67", "K86"),
+            ("{\"ScanHotkey\":\"K160\"}", "S1D", "K67", "K86"),
+            ("{\"ScanHotkey\":\"M4\"}", "S1D", "K67", "K86"),
+            ("{\"ScanHotkey\":\"K72\",\"OverlayHotkey\":\"K72\"}", "S1D", "K67", "K86"),
+        })
+        {
+            var st = System.Text.Json.JsonSerializer.Deserialize<Settings>(json)!;
+            st.Normalize();
+            bool ok = st.MenuKey == menu && st.ScanHotkey == scanKey && st.OverlayHotkey == overlay;
+            if (!ok) fails++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} {json} -> {st.MenuKey} {st.ScanHotkey} {st.OverlayHotkey}");
+        }
 
         // Old settings files: UseArrowKeys migrates to DirectionKeys and isn't written back.
         Console.WriteLine("== Settings migration");
@@ -139,8 +175,10 @@ static class FeatureTests
         return fails == 0 ? 0 : 1;
     }
 
-    private static int SendAndCheck(string label, string[] keys, string up, string down, string left, string right)
+    private static int SendAndCheck(string label, string[] keys, string up, string down, string left, string right,
+                                    HeldKey? menu = null, string menuKeyCode = "ControlKey")
     {
+        menu ??= HeldKey.Default;
         var log = new List<string>();
         var form = new Form { Text = "keytest", Width = 300, Height = 120, KeyPreview = true, TopMost = true };
         form.KeyDown += (_, e) => log.Add("down " + e.KeyCode);
@@ -149,18 +187,18 @@ static class FeatureTests
         {
             form.Activate();
             await Task.Delay(400);
-            await Task.Run(() => InputSender.SendSequence("UDLR", keys, holdMs: 20, gapMs: 20, ctrlMenuDelayMs: 60));
+            await Task.Run(() => InputSender.SendSequence("UDLR", keys, holdMs: 20, gapMs: 20, openMenu: menu, menuDelayMs: 60));
             await Task.Delay(300);
             form.Close();
         };
         Application.Run(form);
 
-        var expected = new List<string> { "down ControlKey" };
+        var expected = new List<string> { "down " + menuKeyCode };
         foreach (var k in new[] { up, down, left, right }) { expected.Add("down " + k); expected.Add("up " + k); }
-        expected.Add("up ControlKey");
+        expected.Add("up " + menuKeyCode);
         Console.WriteLine($"== One-touch key events, {label}: " + string.Join(", ", log));
         bool ok = log.SequenceEqual(expected);
-        Console.WriteLine(ok ? $"  ok   Ctrl held around U D L R as {up} {down} {left} {right}" : "  FAIL expected " + string.Join(", ", expected));
+        Console.WriteLine(ok ? $"  ok   {menuKeyCode} held around U D L R as {up} {down} {left} {right}" : "  FAIL expected " + string.Join(", ", expected));
         return ok ? 0 : 1;
     }
 
