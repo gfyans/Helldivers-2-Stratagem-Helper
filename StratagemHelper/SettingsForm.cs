@@ -494,6 +494,22 @@ internal sealed class SettingsForm : Form
         page.Controls.Add(_autoUpdateBox);
         page.Controls.Add(Hint("Updates install themselves when you're not playing.", 0, Indent));
 
+        page.Controls.Add(new SectionHeader("Bugs & ideas") { Width = Inner, Margin = new Padding(0, 18, 0, 4) });
+        page.Controls.Add(new Label
+        {
+            Text = "Found a bug, something not working, or got an idea for a feature? Tell me on GitHub.",
+            AutoSize = true, MaximumSize = new Size(Inner, 0), ForeColor = Theme.Text, Margin = new Padding(0, 0, 0, 8),
+        });
+        var issueRow = Row();
+        var reportBtn = new HdButton("Report an issue") { Margin = new Padding(0, 0, 10, 0), AccessibleName = "Report a bug or suggest a feature on GitHub" };
+        reportBtn.Click += (_, _) => Updater.OpenReleasesPage(Updater.NewIssueUrl);
+        var issuesBtn = new HdButton("See open issues") { Margin = Padding.Empty, AccessibleName = "Open the list of known issues on GitHub" };
+        issuesBtn.Click += (_, _) => Updater.OpenReleasesPage(Updater.IssuesPage);
+        issueRow.Controls.Add(reportBtn);
+        issueRow.Controls.Add(issuesBtn);
+        page.Controls.Add(issueRow);
+        page.Controls.Add(Hint("You'll need a free GitHub account. Saying what you were doing when it happened helps a lot.", 6));
+
         _autoUpdateBox.CheckedChanged += (_, _) => Change(() => _settings.AutoUpdate = _autoUpdateBox.Checked);
         return page;
     }

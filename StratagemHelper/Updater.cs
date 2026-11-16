@@ -15,6 +15,11 @@ internal static class Updater
 {
     public const string Repo = "gfyans/Helldivers-2-Stratagem-Helper";
     public const string ReleasesPage = "https://github.com/" + Repo + "/releases";
+    public const string IssuesPage = "https://github.com/" + Repo + "/issues";
+
+    /// <summary>A new GitHub issue with the app version filled in, so reports say which version they're about.</summary>
+    public static string NewIssueUrl =>
+        $"{IssuesPage}/new?body={Uri.EscapeDataString($"\n\n---\nStratagem Helper {Current}")}";
     private const string AssetName = "StratagemHelper.exe";
 
     // For testing against a local server: set STRATAGEMHELPER_UPDATE_URL to a JSON file shaped like GitHub's API.
