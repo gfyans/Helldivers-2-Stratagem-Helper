@@ -807,8 +807,14 @@ public sealed class MainForm : Form
 
         BeginInvoke(() =>
         {
-            using var dlg = new FirstRunDialog(_icon);
-            if (dlg.ShowDialog(this) != DialogResult.Yes) return;
+            using var dlg = new FirstRunDialog(_icon, _settings.UseArrowKeys);
+            var result = dlg.ShowDialog(this);
+            if (dlg.UseArrowKeys != _settings.UseArrowKeys)
+            {
+                _settings.UseArrowKeys = dlg.UseArrowKeys;
+                Storage.SaveSettings(_settings);
+            }
+            if (result != DialogResult.Yes) return;
             try
             {
                 Startup.SetEnabled(true);

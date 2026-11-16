@@ -1,13 +1,20 @@
 namespace StratagemHelper;
 
 /// <summary>
-/// Shown once, the first time the app opens: offers to start with Windows and gives a short quick start.
+/// Shown once, the first time the app opens: suggests arrow keys for stratagem input, offers to start with
+/// Windows and gives a short quick start.
 /// DialogResult.Yes = start with Windows. Enter = yes, Esc = not now.
 /// </summary>
 internal sealed class FirstRunDialog : Form
 {
-    public FirstRunDialog(Icon icon)
+    private readonly HdToggle _arrowBox = new("I use the arrow keys for stratagems");
+
+    /// <summary>The player says they've moved stratagem inputs to the arrow keys in the game.</summary>
+    public bool UseArrowKeys => _arrowBox.Checked;
+
+    public FirstRunDialog(Icon icon, bool useArrowKeys)
     {
+        _arrowBox.Checked = useArrowKeys;
         Theme.PrepareForm(this);
         const int W = 500, Pad = 22, Inner = W - Pad * 2;
 
@@ -44,6 +51,22 @@ internal sealed class FirstRunDialog : Form
             AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false,
             Padding = new Padding(Pad, 16, Pad, 20), Margin = Padding.Empty, BackColor = Theme.Bg,
         };
+
+        body.Controls.Add(new Label
+        {
+            Text = "Tip: in the game's controls, set the stratagem directions to the arrow keys. " +
+                   "Then you can keep moving with WASD while you call in.",
+            AutoSize = true, MaximumSize = new Size(Inner, 0), ForeColor = Theme.Text, Margin = new Padding(0, 0, 0, 2),
+        });
+        _arrowBox.Margin = new Padding(2, 0, 0, 0);
+        _arrowBox.AccessibleName = "I use the arrow keys for stratagems";
+        body.Controls.Add(_arrowBox);
+        body.Controls.Add(new Label
+        {
+            Text = "Tick this if you've changed it, so the app sends arrows too.",
+            AutoSize = true, MaximumSize = new Size(Inner, 0), Font = Theme.Small, ForeColor = Theme.Muted,
+            Margin = new Padding(0, 0, 0, 16),
+        });
 
         body.Controls.Add(new SectionHeader("Start with Windows?") { Width = Inner, Margin = new Padding(0, 0, 0, 6) });
         body.Controls.Add(new Label

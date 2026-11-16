@@ -29,7 +29,7 @@ if (args.Length == 4 && args[0] == "--form")
     // Shows a window with a given text scale and High Contrast on/off for screenshots: --form first|settings <scale> <0|1>
     Theme.Init(float.Parse(args[2], System.Globalization.CultureInfo.InvariantCulture), args[3] == "1");
     Form f;
-    if (args[1] == "first") f = new FirstRunDialog(Theme.MakeIcon());
+    if (args[1] == "first") f = new FirstRunDialog(Theme.MakeIcon(), false);
     else
     {
         // Same loadout as the main window image (settings.json next to this exe), with voice always listening.
@@ -86,7 +86,7 @@ if (args.Length == 2 && args[0] == "--shot-main")
     Application.Run(f);
     return 0;
 }
-if (args.Contains("--firstrun")) { using var d = new FirstRunDialog(Theme.MakeIcon()); Console.WriteLine("Result: " + d.ShowDialog()); return 0; }
+if (args.Contains("--firstrun")) { using var d = new FirstRunDialog(Theme.MakeIcon(), false); Console.WriteLine("Result: " + d.ShowDialog()); return 0; }
 if (args.Length == 4 && args[0] == "--render-overlay")
 {
     // README image: the loadout panel composited beside the real (open) menu on a capture.
