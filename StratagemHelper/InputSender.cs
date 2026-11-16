@@ -8,10 +8,6 @@ internal static class InputSender
 {
     private static readonly object Busy = new();
 
-    // Scan codes (set 1)
-    private const ushort SC_W = 0x11, SC_A = 0x1E, SC_S = 0x1F, SC_D = 0x20;
-    private const ushort SC_UP = 0x48, SC_LEFT = 0x4B, SC_RIGHT = 0x4D, SC_DOWN = 0x50;
-
     private const ushort SC_LCTRL = 0x1D;
 
     /// <summary>Holds or releases left Ctrl (opens / closes the stratagem menu).</summary>
@@ -20,9 +16,18 @@ internal static class InputSender
     /// <summary>
     /// Enters a code. With <paramref name="ctrlMenuDelayMs"/> >= 0 the app holds Ctrl itself (one-touch / voice):
     /// Ctrl down, wait for the menu, code, Ctrl up. Returns false if another sequence was already running.
+    /// <paramref name="directionKeys"/> are the game's Up, Down, Left, Right keys as binding ids (see <see cref="Bindings"/>).
     /// </summary>
-    public static bool SendSequence(string code, bool useArrows, int holdMs, int gapMs, int ctrlMenuDelayMs = -1)
+    public static bool SendSequence(string code, string[] directionKeys, int holdMs, int gapMs, int ctrlMenuDelayMs = -1)
     {
+        var keys = new (ushort scan, bool extended)[4];
+        for (int i = 0; i < 4; i++)
+        {
+            var id = directionKeys.ElementAtOrDefault(i) ?? Bindings.WasdDirections[i];
+            if (!Bindings.TryGetScan(id, out keys[i].scan, out keys[i].extended))
+                Bindings.TryGetScan(Bindings.WasdDirections[i], out keys[i].scan, out keys[i].extended);
+        }
+
         // If a sequence is already running (e.g. two hotkeys pressed quickly), drop this one
         // rather than interleaving keystrokes.
         if (!Monitor.TryEnter(Busy)) return false;
@@ -37,16 +42,9 @@ internal static class InputSender
             }
             foreach (char c in code.ToUpperInvariant())
             {
-                ushort sc;
-                bool extended = useArrows;
-                switch (c)
-                {
-                    case 'U': sc = useArrows ? SC_UP : SC_W; break;
-                    case 'D': sc = useArrows ? SC_DOWN : SC_S; break;
-                    case 'L': sc = useArrows ? SC_LEFT : SC_A; break;
-                    case 'R': sc = useArrows ? SC_RIGHT : SC_D; break;
-                    default: continue;
-                }
+                int dir = c switch { 'U' => 0, 'D' => 1, 'L' => 2, 'R' => 3, _ => -1 };
+                if (dir < 0) continue;
+                var (sc, extended) = keys[dir];
                 SendKey(sc, extended, keyUp: false);
                 Thread.Sleep(holdMs);
                 SendKey(sc, extended, keyUp: true);

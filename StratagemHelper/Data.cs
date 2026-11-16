@@ -17,7 +17,25 @@ public sealed class Stratagem
 public sealed class Settings
 {
     public string[] Slots { get; set; } = new string[9];
-    public bool UseArrowKeys { get; set; } = false;
+
+    /// <summary>
+    /// Physical keys the game uses for stratagem Up, Down, Left, Right (see <see cref="Bindings"/>). Filled in by
+    /// <see cref="Normalize"/>: WASD positions unless an old settings file asked for arrow keys.
+    /// </summary>
+    public string[]? DirectionKeys { get; set; }
+
+    /// <summary>Old setting, only read to migrate to <see cref="DirectionKeys"/>.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public bool? UseArrowKeys { get; set; }
+
+    public bool DirectionsAreArrows => DirectionKeys != null && DirectionKeys.SequenceEqual(Bindings.ArrowDirections);
+
+    public void Normalize()
+    {
+        if (!Bindings.IsValidDirections(DirectionKeys))
+            DirectionKeys = (UseArrowKeys == true ? Bindings.ArrowDirections : Bindings.WasdDirections).ToArray();
+        UseArrowKeys = null;
+    }
 
     /// <summary>Check GitHub for new releases (startup + every 12 h) and install them while the game isn't running.</summary>
     public bool AutoUpdate { get; set; } = true;
@@ -87,13 +105,14 @@ internal static class Storage
                     var slots = new string[9];
                     Array.Copy(s.Slots ?? Array.Empty<string>(), slots, Math.Min(9, s.Slots?.Length ?? 0));
                     s.Slots = slots;
+                    s.Normalize();
                     return s;
                 }
             }
         }
         catch { }
 
-        return new Settings
+        var fresh = new Settings
         {
             Slots = new[]
             {
@@ -101,6 +120,8 @@ internal static class Storage
                 "Eagle Airstrike", "Orbital Laser", "Hellbomb", "SEAF Artillery"
             }
         };
+        fresh.Normalize();
+        return fresh;
     }
 
     public static void SaveStratagems(List<Stratagem> list)

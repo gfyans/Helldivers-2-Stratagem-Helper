@@ -149,7 +149,7 @@ Closing the window sends the app to the system tray. To quit, right-click the tr
 | One key misses the first arrow | Turn up **Menu delay** in Settings › Controls. |
 | The numpad doesn't work | Turn Num Lock on, or pick different keys in Settings › Controls. |
 | Voice says it isn't available | Add English speech recognition in Windows (Settings › Time & language › Speech) and check your microphone. |
-| You've moved stratagem inputs to the arrow keys | Choose **Arrow keys** in Settings › General. |
+| You've moved stratagem inputs to other keys (arrows, ESDF, ...) | Set the **Up**, **Down**, **Left** and **Right** keys in Settings › General to match, or press **Arrow keys**. The defaults are the WASD positions, so AZERTY (ZQSD) and other layouts work without changes. |
 
 ---
 

@@ -101,6 +101,15 @@ internal static class Native
     [DllImport("user32.dll", SetLastError = true)]
     public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
+    public const uint LLKHF_EXTENDED = 0x01;
+    public const uint MAPVK_VK_TO_VSC_EX = 4;
+
+    [DllImport("user32.dll")]
+    public static extern uint MapVirtualKey(uint uCode, uint uMapType);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetKeyNameText(int lParam, [Out] char[] lpString, int cchSize);
+
     [DllImport("user32.dll")]
     public static extern IntPtr GetForegroundWindow();
 

@@ -96,6 +96,51 @@ static class FeatureTests
     /// <summary>Sends a one-touch call-in into a test window and logs the key events it receives.</summary>
     public static int Keys()
     {
+        int fails = 0;
+        // Ctrl must wrap the whole sequence. U D L R with the default (WASD positions) is W S A D.
+        fails += SendAndCheck("WASD", Bindings.WasdDirections, "W", "S", "A", "D");
+        fails += SendAndCheck("arrows", Bindings.ArrowDirections, "Up", "Down", "Left", "Right");
+        fails += SendAndCheck("ESDF (custom)", new[] { "S12", "S20", "S1F", "S21" }, "E", "D", "S", "F");
+
+        // Names come from the keyboard layout. These expectations are for QWERTY layouts (this test PC).
+        Console.WriteLine("== Key names on this layout");
+        var names = new (string id, string expected)[]
+        {
+            ("S11", "W"), ("SE048", "UP"), ("SE04D", "RIGHT"), ("K97", "NUMPAD 1"), ("K65", "A"), ("M4", "MOUSE 4"),
+            ("K38", "UP"), ("K112", "F1"), ("K36", "HOME"), ("K46", "DELETE"),
+        };
+        foreach (var (id, expected) in names)
+        {
+            string got = Bindings.Display(id);
+            bool ok = got == expected;
+            if (!ok) fails++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} {id} -> {got}{(ok ? "" : " (expected " + expected + ")")}");
+        }
+        Console.WriteLine($"  ..   Ctrl -> {Bindings.Ctrl}, defaults -> {Bindings.WasdName}");
+
+        // Old settings files: UseArrowKeys migrates to DirectionKeys and isn't written back.
+        Console.WriteLine("== Settings migration");
+        foreach (var (json, expected) in new[]
+        {
+            ("{\"UseArrowKeys\":true}", Bindings.ArrowDirections),
+            ("{\"UseArrowKeys\":false}", Bindings.WasdDirections),
+            ("{}", Bindings.WasdDirections),
+            ("{\"DirectionKeys\":[\"S12\",\"S1F\",\"S20\",\"S21\"]}", new[] { "S12", "S1F", "S20", "S21" }),
+            ("{\"DirectionKeys\":[\"S12\"]}", Bindings.WasdDirections),
+        })
+        {
+            var s = System.Text.Json.JsonSerializer.Deserialize<Settings>(json)!;
+            s.Normalize();
+            string back = System.Text.Json.JsonSerializer.Serialize(s);
+            bool ok = s.DirectionKeys!.SequenceEqual(expected) && !back.Contains("UseArrowKeys");
+            if (!ok) fails++;
+            Console.WriteLine($"  {(ok ? "ok  " : "FAIL")} {json} -> {string.Join(" ", s.DirectionKeys!)}");
+        }
+        return fails == 0 ? 0 : 1;
+    }
+
+    private static int SendAndCheck(string label, string[] keys, string up, string down, string left, string right)
+    {
         var log = new List<string>();
         var form = new Form { Text = "keytest", Width = 300, Height = 120, KeyPreview = true, TopMost = true };
         form.KeyDown += (_, e) => log.Add("down " + e.KeyCode);
@@ -104,17 +149,18 @@ static class FeatureTests
         {
             form.Activate();
             await Task.Delay(400);
-            await Task.Run(() => InputSender.SendSequence("UDLR", useArrows: false, holdMs: 20, gapMs: 20, ctrlMenuDelayMs: 60));
+            await Task.Run(() => InputSender.SendSequence("UDLR", keys, holdMs: 20, gapMs: 20, ctrlMenuDelayMs: 60));
             await Task.Delay(300);
             form.Close();
         };
         Application.Run(form);
 
-        // Ctrl must wrap the whole sequence: W S A D is up, down, left, right.
-        var expected = new[] { "down ControlKey", "down W", "up W", "down S", "up S", "down A", "up A", "down D", "up D", "up ControlKey" };
-        Console.WriteLine("== One-touch key events: " + string.Join(", ", log));
+        var expected = new List<string> { "down ControlKey" };
+        foreach (var k in new[] { up, down, left, right }) { expected.Add("down " + k); expected.Add("up " + k); }
+        expected.Add("up ControlKey");
+        Console.WriteLine($"== One-touch key events, {label}: " + string.Join(", ", log));
         bool ok = log.SequenceEqual(expected);
-        Console.WriteLine(ok ? "  ok   Ctrl held around U D L R as W S A D" : "  FAIL expected " + string.Join(", ", expected));
+        Console.WriteLine(ok ? $"  ok   Ctrl held around U D L R as {up} {down} {left} {right}" : "  FAIL expected " + string.Join(", ", expected));
         return ok ? 0 : 1;
     }
 

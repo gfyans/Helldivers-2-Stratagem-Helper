@@ -158,7 +158,7 @@ public sealed class MainForm : Form
         });
         header.Controls.Add(new Label
         {
-            Text = "SCAN  ·  CTRL + C      CALL IN  ·  CTRL + 1–9      OVERLAY  ·  CTRL + V",
+            Text = "SCAN  ·  {0} + C      CALL IN  ·  {0} + 1–9      OVERLAY  ·  {0} + V".Replace("{0}", Bindings.Ctrl.ToUpperInvariant()),
             Font = Theme.Small, ForeColor = Theme.Muted, AutoSize = true, Location = new Point(Pad, 50),
         });
         var settingsBtn = new HdButton("Settings", icon: ButtonIcon.Cog);
@@ -471,7 +471,7 @@ public sealed class MainForm : Form
         WaitForScan();
         var code = _slotCodes[slot];
         if (code == null) return;
-        if (InputSender.SendSequence(code, _settings.UseArrowKeys, _settings.KeyHoldMs, _settings.KeyGapMs))
+        if (InputSender.SendSequence(code, _settings.DirectionKeys!, _settings.KeyHoldMs, _settings.KeyGapMs))
             Called(slot, code, Stats.Via.CtrlNumber);
     }
 
@@ -486,7 +486,7 @@ public sealed class MainForm : Form
             return;
         }
         int delay = CtrlHeld() ? -1 : _settings.MenuOpenDelayMs;
-        if (InputSender.SendSequence(code, _settings.UseArrowKeys, _settings.KeyHoldMs, _settings.KeyGapMs, delay))
+        if (InputSender.SendSequence(code, _settings.DirectionKeys!, _settings.KeyHoldMs, _settings.KeyGapMs, delay))
             Called(slot, code, via);
     }
 
@@ -650,7 +650,7 @@ public sealed class MainForm : Form
                 await Task.Delay(200);
             }
             if (_settings.SoundCues) Sounds.Failure();
-            BeginInvoke(() => SetStatus("Couldn't read the menu. Hold Ctrl until it opens, then press C", Theme.Danger));
+            BeginInvoke(() => SetStatus($"Couldn't read the menu. Hold {Bindings.Ctrl} until it opens, then press C", Theme.Danger));
         }
         catch (Exception ex)
         {
@@ -807,11 +807,11 @@ public sealed class MainForm : Form
 
         BeginInvoke(() =>
         {
-            using var dlg = new FirstRunDialog(_icon, _settings.UseArrowKeys);
+            using var dlg = new FirstRunDialog(_icon, _settings.DirectionsAreArrows);
             var result = dlg.ShowDialog(this);
-            if (dlg.UseArrowKeys != _settings.UseArrowKeys)
+            if (dlg.UseArrowKeys != _settings.DirectionsAreArrows)
             {
-                _settings.UseArrowKeys = dlg.UseArrowKeys;
+                _settings.DirectionKeys = (dlg.UseArrowKeys ? Bindings.ArrowDirections : Bindings.WasdDirections).ToArray();
                 Storage.SaveSettings(_settings);
             }
             if (result != DialogResult.Yes) return;

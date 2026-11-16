@@ -28,8 +28,9 @@ internal sealed class SettingsForm : Form
     private readonly HdRadio[] _sizeRadios = { new("100%"), new("125%"), new("150%"), new("200%") };
     private static readonly int[] Sizes = { 100, 125, 150, 200 };
     private readonly HdButton _restartBtn = new("Restart now") { Visible = false };
-    private readonly HdRadio _wasdRadio = new("WASD");
-    private readonly HdRadio _arrowRadio = new("Arrow keys");
+    private readonly HdBindBox[] _dirBinds = Bindings.DirectionNames.Select(n => new HdBindBox { Label = $"Stratagem {n.ToLowerInvariant()} key", Width = 104 }).ToArray();
+    private readonly HdButton _wasdBtn = new(Bindings.WasdName);
+    private readonly HdButton _arrowBtn = new("Arrow keys");
     private readonly NumericUpDown _holdNum = new() { Minimum = 10, Maximum = 200, Width = 64 };
     private readonly NumericUpDown _gapNum = new() { Minimum = 10, Maximum = 200, Width = 64 };
 
@@ -63,7 +64,7 @@ internal sealed class SettingsForm : Form
     public event Action? RestartRequested;
     public event Action<string, Color?>? Status;
     /// <summary>Ask the main window to capture the next key / mouse button; the callback gets the binding id.</summary>
-    public event Action<Action<string>>? CaptureRequested;
+    public event Action<Action<string, string?>>? CaptureRequested;
     public event Action? CaptureCancelled;
 
     public SettingsForm(Settings settings, bool enabled, int stratagemCount, Icon icon)
@@ -94,8 +95,7 @@ internal sealed class SettingsForm : Form
         _startupBox.Checked = Startup.IsEnabled();
         int sizeIdx = Array.IndexOf(Sizes, settings.TextSize);
         _sizeRadios[sizeIdx < 0 ? 0 : sizeIdx].Checked = true;
-        _wasdRadio.Checked = !settings.UseArrowKeys;
-        _arrowRadio.Checked = settings.UseArrowKeys;
+        ShowDirections();
         _holdNum.Value = Math.Clamp(settings.KeyHoldMs, 10, 200);
         _gapNum.Value = Math.Clamp(settings.KeyGapMs, 10, 200);
         for (int i = 0; i < 9; i++) _slotBinds[i].Binding = settings.SlotBindings.ElementAtOrDefault(i);
@@ -219,7 +219,7 @@ internal sealed class SettingsForm : Form
         page.Controls.Add(new SectionHeader("Overlay & sound") { Width = Inner, Margin = new Padding(0, 16, 0, 4) });
         _overlayBox.Margin = new Padding(2, 1, 0, 0);
         page.Controls.Add(_overlayBox);
-        page.Controls.Add(Hint("Press Ctrl+V in game to hide it. Needs borderless or windowed mode.", 0, Indent));
+        page.Controls.Add(Hint($"Press {Bindings.Ctrl} + V in game to hide it. Needs borderless or windowed mode.", 0, Indent));
 
         // Opacity slider: arrow keys / Page Up / Page Down work too; screen readers announce it as "Overlay opacity".
         var opacityRow = Row(4);
@@ -271,15 +271,35 @@ internal sealed class SettingsForm : Form
         page.Controls.Add(Hint("Changes after a restart. Windows display scaling works too.", 2));
 
         page.Controls.Add(new SectionHeader("Input") { Width = Inner, Margin = new Padding(0, 16, 0, 4) });
-        var dirRow = Row();
-        dirRow.Controls.Add(Theme.MutedLabel("DIRECTIONS", 110));
-        _wasdRadio.Margin = new Padding(0, 0, 18, 0);
-        _arrowRadio.Margin = new Padding(0);
-        _wasdRadio.AccessibleName = "Send directions as WASD";
-        _arrowRadio.AccessibleName = "Send directions as arrow keys";
-        dirRow.Controls.Add(_wasdRadio);
-        dirRow.Controls.Add(_arrowRadio);
-        page.Controls.Add(dirRow);
+        page.Controls.Add(Hint("The keys the game uses for stratagem directions. Change them if you've changed them in the game's controls.", 0));
+        // Up / Down on the first row, Left / Right on the second.
+        var dirGrid = new TableLayoutPanel { AutoSize = true, ColumnCount = 4, Margin = new Padding(0, 6, 0, 0), Padding = Padding.Empty };
+        for (int i = 0; i < 4; i++)
+        {
+            int col = i % 2 == 0 ? 0 : 2, row = i / 2;
+            // Same columns as the key hold / key gap row below.
+            var label = GridLabel(Bindings.DirectionNames[i].ToUpperInvariant());
+            label.Width = col == 0 ? 110 : 80;
+            if (col > 0) label.Margin = new Padding(6, 2, 0, 2);
+            dirGrid.Controls.Add(label, col, row);
+            _dirBinds[i].Margin = new Padding(0, 2, 0, 2);
+            dirGrid.Controls.Add(_dirBinds[i], col + 1, row);
+            WireDirection(_dirBinds[i], i);
+        }
+        page.Controls.Add(dirGrid);
+        var presetRow = Row(4);
+        var resetLabel = Theme.MutedLabel("RESET TO", 110);
+        resetLabel.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left; // centred on the buttons
+        presetRow.Controls.Add(resetLabel);
+        _wasdBtn.Margin = new Padding(0, 0, 10, 0);
+        _arrowBtn.Margin = Padding.Empty;
+        _wasdBtn.AccessibleName = $"Use {Bindings.WasdName} for stratagem directions";
+        _arrowBtn.AccessibleName = "Use the arrow keys for stratagem directions";
+        _wasdBtn.Click += (_, _) => SetDirections(Bindings.WasdDirections);
+        _arrowBtn.Click += (_, _) => SetDirections(Bindings.ArrowDirections);
+        presetRow.Controls.Add(_wasdBtn);
+        presetRow.Controls.Add(_arrowBtn);
+        page.Controls.Add(presetRow);
 
         var timingRow = Row(4);
         timingRow.Controls.Add(Theme.MutedLabel("KEY HOLD", 110));
@@ -296,8 +316,6 @@ internal sealed class SettingsForm : Form
         _enabledBox.CheckedChanged += (_, _) => { if (!_loading) HotkeysEnabledChanged?.Invoke(_enabledBox.Checked); };
         _overlayBox.CheckedChanged += (_, _) => Change(() => _settings.ShowOverlay = _overlayBox.Checked);
         _soundBox.CheckedChanged += (_, _) => Change(() => _settings.SoundCues = _soundBox.Checked);
-        _wasdRadio.CheckedChanged += (_, _) => Change(() => _settings.UseArrowKeys = _arrowRadio.Checked);
-        _arrowRadio.CheckedChanged += (_, _) => Change(() => _settings.UseArrowKeys = _arrowRadio.Checked);
         _holdNum.ValueChanged += (_, _) => Change(() => _settings.KeyHoldMs = (int)_holdNum.Value);
         _gapNum.ValueChanged += (_, _) => Change(() => _settings.KeyGapMs = (int)_gapNum.Value);
         _startupBox.CheckedChanged += (_, _) =>
@@ -320,7 +338,7 @@ internal sealed class SettingsForm : Form
     {
         var page = Page();
         page.Controls.Add(new SectionHeader("One-touch call-ins") { Width = Inner, Margin = new Padding(0, 0, 0, 4) });
-        page.Controls.Add(Hint("One press puts in the whole code, no Ctrl needed. Use the numpad, a mouse side button or a foot pedal.", 0));
+        page.Controls.Add(Hint($"One press puts in the whole code, no {Bindings.Ctrl} needed. Use the numpad, a mouse side button or a foot pedal.", 0));
 
         var grid = new TableLayoutPanel { AutoSize = true, ColumnCount = 4, Margin = new Padding(0, 10, 0, 0) };
         // Tab order runs down the first column (slots 1-5), then the second (6-9, scan).
@@ -352,9 +370,9 @@ internal sealed class SettingsForm : Form
         page.Controls.Add(Hint("If one-touch misses the first arrow, turn this up."));
 
         page.Controls.Add(new SectionHeader("Always available") { Width = Inner, Margin = new Padding(0, 16, 0, 4) });
-        page.Controls.Add(Hint("Hold Ctrl + 1–9 to call in", 0));
-        page.Controls.Add(Hint("Hold Ctrl + C to scan your loadout", 2));
-        page.Controls.Add(Hint("Ctrl + V hides or shows the overlay", 2));
+        page.Controls.Add(Hint($"Hold {Bindings.Ctrl} + 1–9 to call in", 0));
+        page.Controls.Add(Hint($"Hold {Bindings.Ctrl} + C to scan your loadout", 2));
+        page.Controls.Add(Hint($"{Bindings.Ctrl} + V hides or shows the overlay", 2));
 
         _menuDelayNum.ValueChanged += (_, _) => Change(() => _settings.MenuOpenDelayMs = (int)_menuDelayNum.Value);
         return page;
@@ -462,7 +480,48 @@ internal sealed class SettingsForm : Form
 
     // ---------------- Binding capture ----------------
 
-    private void Wire(HdBindBox box, Action<string?> save)
+    private void Wire(HdBindBox box, Action<string?> save) => StartCaptureOnClick(box, (id, _) =>
+    {
+        string? value = id is Bindings.Backspace or Bindings.Delete ? null : id;
+        if (value != null && !Bindings.IsBindable(value))
+        {
+            Status?.Invoke("That key can't be used", Theme.Danger);
+            return;
+        }
+        box.Binding = value;
+        Change(() => save(value));
+    });
+
+    /// <summary>
+    /// A stratagem direction: stored as the physical key, since that's what gets sent to the game.
+    /// Backspace / Delete put back the default for that direction (a direction can't be empty).
+    /// </summary>
+    private void WireDirection(HdBindBox box, int dir) => StartCaptureOnClick(box, (id, physical) =>
+    {
+        string? value = id is Bindings.Backspace or Bindings.Delete ? Bindings.WasdDirections[dir] : physical;
+        if (value == null || !Bindings.IsBindable(id) || !Bindings.TryGetScan(value, out _, out _))
+        {
+            Status?.Invoke("That can't be used for stratagem directions", Theme.Danger);
+            return;
+        }
+        var keys = (_settings.DirectionKeys ?? Bindings.WasdDirections).ToArray();
+        keys[dir] = value;
+        SetDirections(keys);
+    });
+
+    private void SetDirections(string[] keys)
+    {
+        Change(() => _settings.DirectionKeys = keys.ToArray());
+        ShowDirections();
+    }
+
+    private void ShowDirections()
+    {
+        var keys = _settings.DirectionKeys ?? Bindings.WasdDirections;
+        for (int i = 0; i < 4; i++) _dirBinds[i].Binding = keys.ElementAtOrDefault(i);
+    }
+
+    private void StartCaptureOnClick(HdBindBox box, Action<string, string?> captured)
     {
         box.Click += (_, _) =>
         {
@@ -471,20 +530,13 @@ internal sealed class SettingsForm : Form
             _capturingBox = box;
             box.Capturing = true;
             box.Focus();
-            CaptureRequested?.Invoke(id => BeginInvoke(() =>
+            CaptureRequested?.Invoke((id, physical) => BeginInvoke(() =>
             {
                 if (_capturingBox != box) return;
                 _capturingBox = null;
                 box.Capturing = false;
-                if (id == Bindings.Escape) return;                       // cancel
-                string? value = id is Bindings.Backspace or Bindings.Delete ? null : id;
-                if (value != null && !Bindings.IsBindable(value))
-                {
-                    Status?.Invoke("That key can't be used", Theme.Danger);
-                    return;
-                }
-                box.Binding = value;
-                Change(() => save(value));
+                if (id == Bindings.Escape) return; // cancel
+                captured(id, physical);
             }));
         };
     }

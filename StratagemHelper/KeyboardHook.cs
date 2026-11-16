@@ -67,9 +67,12 @@ internal sealed class KeyboardHook : IDisposable
     private long _pttReleasedTicks = DateTime.MinValue.Ticks;
     public DateTime PttReleasedUtc => new(Interlocked.Read(ref _pttReleasedTicks), DateTimeKind.Utc);
 
-    private Action<string>? _capture;
-    /// <summary>While set, the next key / extra mouse button press is passed here (and swallowed).</summary>
-    public Action<string>? Capture
+    private Action<string, string?>? _capture;
+    /// <summary>
+    /// While set, the next key / extra mouse button press is passed here (and swallowed): its binding id, and for a
+    /// key also the physical key ("S..." id, see <see cref="StratagemHelper.Bindings"/>).
+    /// </summary>
+    public Action<string, string?>? Capture
     {
         get => Volatile.Read(ref _capture);
         set { Volatile.Write(ref _capture, value); RequestMouseRefresh(); }
@@ -138,12 +141,12 @@ internal sealed class KeyboardHook : IDisposable
             bool up = msg is WM_KEYUP or WM_SYSKEYUP;
             if (down || up)
             {
-                // KBDLLHOOKSTRUCT: vkCode at 0, flags at 8. Read in place: this runs for every key in the system.
+                // KBDLLHOOKSTRUCT: vkCode at 0, scanCode at 4, flags at 8. Read in place: this runs for every key in the system.
                 uint vk = (uint)Marshal.ReadInt32(lParam, 0);
                 uint flags = (uint)Marshal.ReadInt32(lParam, 8);
                 bool injected = (flags & LLKHF_INJECTED) != 0;
                 string id = vk < KeyIds.Length ? KeyIds[vk] : StratagemHelper.Bindings.Key(vk);
-                if (!injected && HandleButton(id, vk, down))
+                if (!injected && HandleButton(id, vk, down, lParam))
                     return (IntPtr)1;
             }
         }
@@ -173,7 +176,7 @@ internal sealed class KeyboardHook : IDisposable
                     }
                     down = msg is WM_MBUTTONDOWN or WM_XBUTTONDOWN;
                 }
-                if (id != null && HandleButton(id, 0, down))
+                if (id != null && HandleButton(id, 0, down, IntPtr.Zero))
                     return (IntPtr)1;
             }
         }
@@ -206,14 +209,23 @@ internal sealed class KeyboardHook : IDisposable
 
     // ---------------- Shared ----------------
 
-    /// <summary>Returns true to swallow the event. Hook thread only.</summary>
-    private bool HandleButton(string id, uint vk, bool down)
+    /// <summary>Returns true to swallow the event. <paramref name="kbInfo"/>: the KBDLLHOOKSTRUCT for keys. Hook thread only.</summary>
+    private bool HandleButton(string id, uint vk, bool down, IntPtr kbInfo)
     {
         // Binding capture for the settings window: works anywhere, swallows the press.
         if (down && Capture != null && Interlocked.Exchange(ref _capture, null) is { } cap)
         {
+            string? physical = null;
+            if (kbInfo != IntPtr.Zero)
+            {
+                uint scan = (uint)Marshal.ReadInt32(kbInfo, 4);
+                uint flags = (uint)Marshal.ReadInt32(kbInfo, 8);
+                physical = scan != 0
+                    ? StratagemHelper.Bindings.Scan(scan, (flags & LLKHF_EXTENDED) != 0)
+                    : StratagemHelper.Bindings.TryGetScan(id, out var sc, out var ext) ? StratagemHelper.Bindings.Scan(sc, ext) : null;
+            }
             _swallowed.Add(id);
-            Post(() => cap(id));
+            Post(() => cap(id, physical));
             return true;
         }
 

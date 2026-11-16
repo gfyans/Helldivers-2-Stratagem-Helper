@@ -55,7 +55,7 @@ internal sealed class FirstRunDialog : Form
         body.Controls.Add(new Label
         {
             Text = "Tip: in the game's controls, set the stratagem directions to the arrow keys. " +
-                   "Then you can keep moving with WASD while you call in.",
+                   $"Then you can keep moving with {Bindings.WasdName} while you call in.",
             AutoSize = true, MaximumSize = new Size(Inner, 0), ForeColor = Theme.Text, Margin = new Padding(0, 0, 0, 2),
         });
         _arrowBox.Margin = new Padding(2, 0, 0, 0);
@@ -63,7 +63,7 @@ internal sealed class FirstRunDialog : Form
         body.Controls.Add(_arrowBox);
         body.Controls.Add(new Label
         {
-            Text = "Tick this if you've changed it, so the app sends arrows too.",
+            Text = "Tick this if you've changed it, so the app sends arrows too. Other keys can be set in Settings.",
             AutoSize = true, MaximumSize = new Size(Inner, 0), Font = Theme.Small, ForeColor = Theme.Muted,
             Margin = new Padding(0, 0, 0, 16),
         });
@@ -84,8 +84,8 @@ internal sealed class FirstRunDialog : Form
         body.Controls.Add(new SectionHeader("Quick start") { Width = Inner, Margin = new Padding(0, 0, 0, 6) });
         foreach (var line in new[]
         {
-            "1.  In a mission, hold Ctrl and press C to grab your loadout.",
-            "2.  Call in with Ctrl + 1–9, or just Numpad 1–9.",
+            $"1.  In a mission, hold {Bindings.Ctrl} and press C to grab your loadout.",
+            $"2.  Call in with {Bindings.Ctrl} + 1–9, or just Numpad 1–9.",
             "3.  Or turn on voice and say “call in” and a stratagem.",
         })
             body.Controls.Add(new Label { Text = line, AutoSize = true, MaximumSize = new Size(Inner, 0), ForeColor = Theme.Text, Margin = new Padding(0, 0, 0, 3) });
